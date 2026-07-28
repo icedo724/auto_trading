@@ -1,0 +1,46 @@
+# 미국 주식/ETF 실험 (yfinance). 먼저 `pip install yfinance` 필요.
+# 실행: python -m quant optimize -c configs/experiment_us.yaml
+
+data:
+  source: yahoo
+  symbols: [SPY, QQQ, AAPL, MSFT, NVDA, AMZN, GOOGL, META, JPM, XLE]
+  start: "2015-01-01"
+  end: "2025-12-31"
+  cache_dir: data/cache
+  min_bars: 250
+
+backtest:
+  initial_cash: 100000
+  cost: us
+  execution: next_open
+  signal_lag: 1
+  allow_short: false
+  max_weight: 1.0
+  rebalance_threshold: 0.05
+  allow_fractional: true
+  stop_loss_pct: 0.12
+  trailing_stop_pct: 0.0
+  trading_days: 252
+  risk_free_rate: 0.04
+
+optimize:
+  objective: robust
+  min_trades: 20
+  output_dir: reports/us
+  store_equity_top: 8
+  strategies:
+    - buy_and_hold
+    - sma_cross
+    - macd
+    - donchian
+    - momentum
+    - rsi_reversion
+    - bollinger
+    - zscore
+    - vol_target
+
+validate:
+  split_date: "2022-01-01"
+  top_n: 5
+  train_days: 504
+  test_days: 126

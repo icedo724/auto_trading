@@ -1,0 +1,13 @@
+# --- core (필수) ---
+pandas>=2.0
+numpy>=1.24
+PyYAML>=6.0
+
+# --- 데이터 소스 (선택) ---
+# 미국/글로벌 주식
+yfinance>=0.2.40
+# 한국 주식 (KOSPI/KOSDAQ)
+pykrx>=1.0.45
+
+# --- 리포트 차트 (선택) ---
+matplotlib>=3.7

@@ -1,0 +1,58 @@
+# 국내 주식 실험 (pykrx). 먼저 `pip install pykrx` 필요.
+# 실행: python -m quant fetch    -c configs/experiment_kr.yaml
+#       python -m quant optimize -c configs/experiment_kr.yaml
+
+data:
+  source: krx
+  symbols:
+    - "005930"   # 삼성전자
+    - "000660"   # SK하이닉스
+    - "005380"   # 현대차
+    - "035420"   # NAVER
+    - "035720"   # 카카오
+    - "051910"   # LG화학
+    - "005490"   # POSCO홀딩스
+    - "068270"   # 셀트리온
+    - "105560"   # KB금융
+    - "012330"   # 현대모비스
+  start: "2015-01-01"
+  end: "2025-12-31"
+  cache_dir: data/cache
+  min_bars: 250
+
+backtest:
+  initial_cash: 10000000
+  cost: kr                 # 수수료 0.015%/편도 + 거래세 0.18%(매도) + 슬리피지 0.05%
+  execution: next_open
+  signal_lag: 1
+  allow_short: false       # 국내 개인 공매도 제약 반영
+  max_weight: 1.0
+  rebalance_threshold: 0.05
+  allow_fractional: false  # 국내는 정수 주 단위
+  stop_loss_pct: 0.10
+  trailing_stop_pct: 0.0
+  max_holding_days: 0
+  trading_days: 246        # 국내 연평균 거래일
+  risk_free_rate: 0.03
+
+optimize:
+  objective: robust
+  min_trades: 20
+  output_dir: reports/kr
+  store_equity_top: 8
+  strategies:
+    - buy_and_hold
+    - sma_cross
+    - macd
+    - donchian
+    - momentum
+    - rsi_reversion
+    - bollinger
+    - zscore
+    - vol_target
+
+validate:
+  split_date: "2022-01-01"
+  top_n: 5
+  train_days: 492
+  test_days: 123

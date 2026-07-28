@@ -1,0 +1,59 @@
+# 오프라인 데모 실험 (합성 시세, 네트워크 불필요)
+# 실행: python -m quant optimize -c configs/experiment_demo.yaml
+
+data:
+  source: synthetic        # synthetic | krx | yahoo | csv
+  symbols: [DEMO-A, DEMO-B, DEMO-C, DEMO-D, DEMO-E]
+  start: "2016-01-01"
+  end: "2025-12-31"
+  cache_dir: data/cache
+  min_bars: 250
+
+backtest:
+  initial_cash: 10000000
+  cost: kr                 # kr | us | zero | {commission_bps: .., sell_tax_bps: .., slippage_bps: ..}
+  execution: next_open
+  signal_lag: 1
+  allow_short: false
+  max_weight: 1.0
+  rebalance_threshold: 0.05
+  allow_fractional: true
+  stop_loss_pct: 0.10
+  take_profit_pct: 0.0
+  trailing_stop_pct: 0.0
+  max_holding_days: 0
+  trading_days: 252
+  risk_free_rate: 0.0
+
+optimize:
+  objective: robust        # robust | sharpe | sortino | calmar | cagr
+  min_trades: 10
+  output_dir: reports/demo
+  store_equity_top: 8
+  strategies:
+    - buy_and_hold
+    - sma_cross
+    - macd
+    - donchian
+    - momentum
+    - rsi_reversion
+    - bollinger
+    - zscore
+    - vol_target
+  # grids: 를 지정하면 전략 클래스의 기본 param_space 를 덮어쓴다.
+  grids:
+    sma_cross:
+      fast: [5, 10, 20, 30]
+      slow: [40, 60, 90, 120]
+      trend_filter: [0, 200]
+    rsi_reversion:
+      period: [7, 14, 21]
+      oversold: [20, 25, 30]
+      exit_level: [50, 60, 70]
+      trend_filter: [0, 200]
+
+validate:
+  split_ratio: 0.7         # split_date 가 없으면 이 비율로 분할
+  top_n: 5
+  train_days: 504          # 워크포워드 학습창 (약 2년)
+  test_days: 126           # 워크포워드 검증창 (약 6개월)
