@@ -8,6 +8,9 @@ pip install -r requirements.txt
 python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이 바로 실행 가능
 ```
 
+구현의 **수식 정의**는 [`docs/ALGORITHM.md`](docs/ALGORITHM.md) — 지표 · 전략 · 체결회계 ·
+성과지표 · 목적함수 · 검증 절차를 수식으로 옮긴 문서.
+
 ---
 
 ## 1. 왜 "동일 시점"이 핵심인가
