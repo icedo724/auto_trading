@@ -46,7 +46,8 @@ quant/
 ├── data/
 │   ├── base.py      OHLCV 스키마 정규화 · 공통 달력 정렬
 │   ├── synthetic.py 합성 시세 (네트워크 불필요, 종목코드 → 시드 고정)
-│   ├── remote.py    yfinance(미국) · pykrx(국내)
+│   ├── remote.py    fdr · naver · pykrx(국내) · yfinance(해외)
+│   ├── probe.py     소스 가용성 진단 (check-data)
 │   └── csv_source.py CSV 소스 + 디스크 캐시
 ├── strategy/        전략 레지스트리 (@register 로 자동 등록)
 ├── engine.py        백테스트 엔진 (비용·슬리피지·손절/익절/추적손절)
@@ -108,6 +109,7 @@ class MyStrategy(Strategy):
 ## 4. 사용법
 
 ```bash
+python -m quant check-data                                  # 어떤 데이터 소스가 되는지 진단
 python -m quant list                                        # 전략/파라미터 공간
 python -m quant fetch     -c configs/experiment_kr.yaml     # 시세 수집·캐시
 python -m quant backtest  -c ... -s sma_cross -p fast=20 -p slow=60
@@ -121,7 +123,7 @@ python -m quant signal    -c ... --best-file reports/demo/optimization_best.json
 
 ```yaml
 data:
-  source: krx                    # synthetic | krx | yahoo | csv
+  source: fdr                    # fdr | naver | krx | yahoo | csv | synthetic
   symbols: ["005930", "000660"]
   start: "2015-01-01"
   end:   "2025-12-31"
@@ -233,22 +235,36 @@ python -m quant validate -c configs/experiment_demo.yaml
 
 ## 8. 데이터 소스
 
-| source | 대상 | 패키지 | 비고 |
-|---|---|---|---|
-| `synthetic` | — | 없음 | 국면전환 + 변동성군집 합성 시세. 종목코드로 시드 고정 → 항상 동일 |
-| `krx` | 국내 주식 | `pykrx` | 6자리 코드 (`005930`) |
-| `yahoo` | 미국/글로벌 | `yfinance` | 티커 (`AAPL`, `SPY`) |
-| `csv` | 임의 | 없음 | `data/csv/<종목>.csv` |
+**백테스트에 필요한 데이터는 전부 무료다.** 실시간 호가가 아니라 과거 일봉(EOD)만
+있으면 되고, 아래 소스는 모두 무료로 일봉을 제공한다.
 
-`krx`/`yahoo`는 `data/cache/`에 자동 캐시되어 재실행 시 네트워크를 타지 않는다.
-(`--refresh`로 강제 갱신)
+| source | 대상 | 패키지 | 인증 | 비고 |
+|---|---|---|---|---|
+| `fdr` | 국내·미국·지수·환율 | `finance-datareader` | 불필요 | **국내 권장** |
+| `naver` | 국내 주식 | 없음 | 불필요 | 의존성 0. FDR 막혔을 때 우회로 |
+| `krx` | 국내 주식 | `pykrx` | 선택 | 투자자별 매매동향·공매도 등 KRX 고유 데이터 |
+| `yahoo` | 미국/글로벌 | `yfinance` | 불필요 | 티커 (`AAPL`, `SPY`) |
+| `csv` | 임의 | 없음 | — | `data/csv/<종목>.csv` |
+| `synthetic` | — | 없음 | — | 합성 시세. 종목코드로 시드 고정 → 항상 동일 |
+
+내 환경에서 뭐가 되는지 먼저 확인:
+
+```bash
+python -m quant check-data          # 각 소스로 실제 조회해 보고 표로 결과 출력
+```
+
+원격 소스는 `data/cache/`에 자동 캐시되어 재실행 시 네트워크를 타지 않는다
+(`--refresh`로 강제 갱신). 캐시를 채워두면 **완전 오프라인**으로 최적화·검증이 가능하다.
+
+> 무료/유료 구분, 증권사 실시간 API, 수정주가·생존편향 등 데이터 품질 함정은
+> [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) 참조.
 
 ---
 
 ## 9. 테스트
 
 ```bash
-python -m pytest tests/ -q      # 52 passed
+python -m pytest tests/ -q      # 66 passed
 ```
 
 핵심 검증 항목:
@@ -260,6 +276,7 @@ python -m pytest tests/ -q      # 52 passed
 - **비용 정합성** — 무의미한 매매 반복 시 정확히 비용만큼 손실
 - **손절/익절/추적손절** 체결가, **정수 주** 모드, **공매도** 방향
 - **직렬 == 병렬** 결과 일치
+- **데이터 어댑터** — 실제 응답 형태(네이버 리터럴, FDR/pykrx 컬럼)를 모킹해 파싱 검증
 
 ---
 

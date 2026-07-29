@@ -145,6 +145,24 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_data(args: argparse.Namespace) -> int:
+    """어떤 데이터 소스가 이 환경에서 실제로 동작하는지 진단한다."""
+    from .data.probe import DEFAULT_PROBES, format_report, probe_all
+
+    probes = DEFAULT_PROBES
+    if args.source:
+        probes = [p for p in DEFAULT_PROBES if p[0] in args.source]
+        if not probes:
+            probes = [(s, args.symbol or "005930", "사용자 지정") for s in args.source]
+    elif args.symbol:
+        probes = [(n, args.symbol, d) for n, _, d in DEFAULT_PROBES if n != "synthetic"]
+
+    print("소스별로 최근 30일 일봉을 실제로 받아봅니다. 잠시 걸릴 수 있습니다.\n")
+    results = probe_all(probes, days=args.days)
+    print(format_report(results))
+    return 0 if any(r.ok and r.source != "synthetic" for r in results) else 1
+
+
 def cmd_fetch(args: argparse.Namespace) -> int:
     exp = load_experiment(args.config)
     data = load_data(exp, refresh=args.refresh)
@@ -428,6 +446,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("list", help="등록된 전략과 파라미터 공간 보기")
     sp.set_defaults(func=cmd_list)
+
+    sp = sub.add_parser("check-data", help="어떤 데이터 소스가 동작하는지 진단")
+    sp.add_argument("--source", action="append", help="점검할 소스 (반복 가능)")
+    sp.add_argument("--symbol", default=None, help="점검용 종목코드")
+    sp.add_argument("--days", type=int, default=30, help="조회할 최근 일수")
+    sp.set_defaults(func=cmd_check_data)
 
     sp = sub.add_parser("fetch", help="시세 수집 및 캐시")
     add_common(sp)

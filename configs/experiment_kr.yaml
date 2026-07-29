@@ -1,9 +1,13 @@
-# 국내 주식 실험 (pykrx). 먼저 `pip install pykrx` 필요.
-# 실행: python -m quant fetch    -c configs/experiment_kr.yaml
+# 국내 주식 실험. 먼저 `pip install finance-datareader` 필요.
+# 실행: python -m quant check-data                              # 어떤 소스가 되는지 진단
+#       python -m quant fetch    -c configs/experiment_kr.yaml  # 시세 수집·캐시
 #       python -m quant optimize -c configs/experiment_kr.yaml
+#
+# source 는 fdr(권장, 무인증) / naver(무의존) / krx(pykrx) 중 선택.
+# 자세한 비교는 docs/DATA_SOURCES.md 참조. 모두 무료다.
 
 data:
-  source: krx
+  source: fdr
   symbols:
     - "005930"   # 삼성전자
     - "000660"   # SK하이닉스
