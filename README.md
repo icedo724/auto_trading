@@ -8,8 +8,11 @@ pip install -r requirements.txt
 python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이 바로 실행 가능
 ```
 
-구현의 **수식 정의**는 [`docs/ALGORITHM.md`](docs/ALGORITHM.md) — 지표 · 전략 · 체결회계 ·
-성과지표 · 목적함수 · 검증 절차를 수식으로 옮긴 문서.
+| 문서 | 내용 |
+|---|---|
+| [`docs/ALGORITHM.md`](docs/ALGORITHM.md) | 지표·전략·체결회계·목적함수·검증의 **수식 정의** |
+| [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | 무료/유료 데이터 경계, 증권사 API, 데이터 품질 함정 |
+| [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | **로컬 실전 운용 준비 단계별 작업 목록** |
 
 ---
 
@@ -117,6 +120,18 @@ python -m quant optimize  -c ... --objective robust --top 20
 python -m quant sensitivity -c ... -s donchian
 python -m quant validate  -c ... --split 2022-01-01
 python -m quant signal    -c ... --best-file reports/demo/optimization_best.json
+
+./run_daily.sh                  # 매일 15:40 스케줄 실행용 (킬 스위치·로그 포함)
+touch STOP                      # 킬 스위치 ON — run_daily 가 아무것도 하지 않는다
+```
+
+설정의 `start`/`end` 는 상대 표기를 지원한다. 스케줄 실행 시 **반드시** 상대 표기를
+쓸 것 — 고정 날짜로 두면 신호가 그 날짜에 멈춘다.
+
+```yaml
+data:
+  start: "-10y"     # 10년 전   ( y년 / m월 / w주 / d일 )
+  end:   "today"    # 오늘
 ```
 
 ### 실험 설정 (`configs/*.yaml`)
@@ -125,8 +140,8 @@ python -m quant signal    -c ... --best-file reports/demo/optimization_best.json
 data:
   source: fdr                    # fdr | naver | krx | yahoo | csv | synthetic
   symbols: ["005930", "000660"]
-  start: "2015-01-01"
-  end:   "2025-12-31"
+  start: "-10y"                  # 상대 표기 (절대 날짜도 가능)
+  end:   "today"
 
 backtest:                        # 전 후보가 공유하는 단일 조건
   initial_cash: 10000000

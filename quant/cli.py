@@ -21,6 +21,7 @@ import yaml
 
 from .config import BacktestConfig, CostModel
 from .data import get_source, load_universe
+from .dates import resolve_period
 from .engine import run_backtest
 from .metrics import compute_portfolio_metrics
 from .optimizer import (
@@ -79,12 +80,14 @@ def load_data(exp: dict[str, Any], *, refresh: bool = False) -> dict[str, pd.Dat
     symbols = list(d.get("symbols") or [])
     if not symbols:
         raise SystemExit("설정의 data.symbols 가 비어 있습니다.")
+
+    # 'today' / '-3y' 같은 상대 표기를 실제 날짜로. 스케줄 실행 시 구간이 따라 움직인다.
+    start, end = resolve_period(d.get("start"), d.get("end"))
     print(
-        f"[데이터] source={source.name} 종목={len(symbols)}개 "
-        f"기간={d['start']}~{d['end']}"
+        f"[데이터] source={source.name} 종목={len(symbols)}개 기간={start}~{end}"
     )
     data = load_universe(
-        source, symbols, d["start"], d["end"], min_bars=int(d.get("min_bars", 60))
+        source, symbols, start, end, min_bars=int(d.get("min_bars", 60))
     )
     cal = next(iter(data.values())).index
     print(f"[데이터] 거래일 {len(cal)}봉 · {cal[0].date()} ~ {cal[-1].date()}")

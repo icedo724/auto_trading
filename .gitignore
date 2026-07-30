@@ -5,6 +5,8 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
 
 # 수집 시세 캐시 (재현 가능하므로 커밋하지 않음)
 data/cache/
@@ -12,6 +14,8 @@ data/csv/
 
 # 실행 산출물
 reports/
+logs/
+STOP
 !reports/.gitkeep
 
 .DS_Store

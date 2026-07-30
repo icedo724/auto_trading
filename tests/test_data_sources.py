@@ -221,3 +221,32 @@ def test_format_report_guides_when_all_remote_fail():
     results[1].rows = 20
     ok_text = format_report(results)
     assert "source: fdr" in ok_text
+
+
+# --------------------------------------------------------------------- 상대 날짜
+def test_relative_dates_track_the_clock():
+    """스케줄 실행 시 구간이 오늘을 따라 움직여야 한다."""
+    from quant.dates import resolve_date, resolve_period
+
+    t = pd.Timestamp("2026-07-30")
+    assert resolve_date("today", today=t) == "2026-07-30"
+    assert resolve_date("-3y", today=t) == "2023-07-30"
+    assert resolve_date("-250d", today=t) == "2025-11-22"
+    assert resolve_date("-6m", today=t) == "2026-01-30"
+    assert resolve_date("2024-01-01", today=t) == "2024-01-01"
+    assert resolve_date(None, today=t) == "2026-07-30"
+    assert resolve_period("-3y", "today", today=t) == ("2023-07-30", "2026-07-30")
+
+    # 하루 뒤에 실행하면 구간도 하루 이동한다 (고정 날짜는 그대로)
+    t2 = t + pd.Timedelta(days=1)
+    assert resolve_date("-3y", today=t2) == "2023-07-31"
+    assert resolve_date("2024-01-01", today=t2) == "2024-01-01"
+
+
+def test_bad_dates_rejected():
+    from quant.dates import resolve_date, resolve_period
+
+    with pytest.raises(ValueError, match="해석할 수 없습니다"):
+        resolve_date("어제")
+    with pytest.raises(ValueError, match="시작일"):
+        resolve_period("today", "-1y", today=pd.Timestamp("2026-07-30"))
