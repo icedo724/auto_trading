@@ -15,6 +15,7 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 | [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | 로컬 실전 운용 준비 단계별 작업 목록 |
 | [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | 소액 적립식(월 10만원) 운용의 현실 — 거래 빈도와 비용 |
 | [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 24시간 운용 (가상 자금, 서버 없이 무료 가능) |
+| [`docs/COSTS.md`](docs/COSTS.md) | **비용 정리** — 데이터·인프라·거래비용·세금, 무엇이 무료이고 무엇이 아닌지 |
 
 ---
 
