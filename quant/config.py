@@ -29,13 +29,35 @@ class CostModel:
         return cls(commission_bps=1.0, sell_tax_bps=0.0, slippage_bps=3.0)
 
     @classmethod
+    def crypto_upbit(cls) -> "CostModel":
+        """업비트 원화마켓: 수수료 0.05%/편도, 거래세 없음, 슬리피지 0.05%.
+
+        왕복 약 20bp 로 국내주식(31bp)의 2/3 수준. 소수점 매매가 되므로
+        소액 계좌에서 분산이 가능한 것이 더 큰 장점이다.
+        수수료율은 거래소·이벤트에 따라 바뀌므로 실제 값을 확인할 것.
+        """
+        return cls(commission_bps=5.0, sell_tax_bps=0.0, slippage_bps=5.0)
+
+    @classmethod
+    def crypto_binance(cls) -> "CostModel":
+        """바이낸스 현물: 수수료 0.1%/편도(BNB 할인 미적용), 슬리피지 0.03%."""
+        return cls(commission_bps=10.0, sell_tax_bps=0.0, slippage_bps=3.0)
+
+    @classmethod
     def zero(cls) -> "CostModel":
         """비용 0 (전략 로직 검증용)."""
         return cls(commission_bps=0.0, sell_tax_bps=0.0, slippage_bps=0.0)
 
     @classmethod
     def named(cls, name: str) -> "CostModel":
-        table = {"kr": cls.kr_stock, "us": cls.us_stock, "zero": cls.zero}
+        table = {
+            "kr": cls.kr_stock,
+            "us": cls.us_stock,
+            "zero": cls.zero,
+            "upbit": cls.crypto_upbit,
+            "crypto": cls.crypto_upbit,
+            "binance": cls.crypto_binance,
+        }
         if name not in table:
             raise ValueError(f"알 수 없는 비용 모델: {name!r} (가능: {sorted(table)})")
         return table[name]()
@@ -74,6 +96,11 @@ class BacktestConfig:
     trailing_stop_pct: float = 0.0  # 고점 대비 추적 손절
     max_holding_days: int = 0  # 최대 보유 영업일
 
+    # 적립식 (월 N만원씩 입금하는 운용)
+    contribution: float = 0.0  # 1회 입금액 (0이면 적립 없음)
+    contribution_freq: str = "M"  # M=월 / W=주 / Q=분기
+    min_order_value: float = 0.0  # 최소 주문금액 (업비트 5000원 등). 미만이면 주문 생략
+
     # 성과 지표
     trading_days: int = 252
     risk_free_rate: float = 0.0  # 연율 (예: 0.03 = 3%)
@@ -90,6 +117,12 @@ class BacktestConfig:
             raise ValueError("max_weight 는 0보다 커야 합니다.")
         if not 0 <= self.rebalance_threshold < 1:
             raise ValueError("rebalance_threshold 는 [0, 1) 범위여야 합니다.")
+        if self.contribution < 0:
+            raise ValueError("contribution 은 0 이상이어야 합니다.")
+        if self.contribution_freq not in ("M", "W", "Q"):
+            raise ValueError("contribution_freq 는 M / W / Q 중 하나여야 합니다.")
+        if self.min_order_value < 0:
+            raise ValueError("min_order_value 는 0 이상이어야 합니다.")
         if self.trading_days <= 0:
             raise ValueError("trading_days 는 0보다 커야 합니다.")
 

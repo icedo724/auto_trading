@@ -15,6 +15,7 @@ from .base import (
     get_strategy_class,
     register,
 )
+from .grid import GridTrading  # noqa: F401 - 레지스트리 등록 목적
 from .reversion import (  # noqa: F401 - 레지스트리 등록 목적
     BollingerBands,
     RsiReversion,

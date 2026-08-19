@@ -18,6 +18,8 @@ METRIC_ORDER = [
     "calmar", "ulcer_index", "var_95", "win_rate", "profit_factor", "avg_win",
     "avg_loss", "payoff_ratio", "expectancy", "n_trades", "avg_holding_days",
     "exposure", "turnover", "cost_drag", "best_day", "worst_day",
+    # 적립식 전용 (contribution > 0 일 때만 채워진다)
+    "total_invested", "final_balance", "net_profit", "mwr",
 ]
 
 #: 값이 클수록 좋은 지표
@@ -108,6 +110,70 @@ def trade_stats(trades: "Iterable[Trade]") -> dict[str, float]:
     }
 
 
+def money_weighted_return(
+    cashflows: list[tuple[float, float]], final_value: float, years: float
+) -> float:
+    """자금가중수익률(IRR, 연율). 적립식에서 "내 돈이 실제로 몇 % 벌었나"를 답한다.
+
+    cashflows: [(경과연수, 투입금액), ...]  final_value: 최종 평가액
+    TWR 과 달리 **입금 시점**의 영향을 받는다. 늦게 넣은 돈은 덜 반영된다.
+    의존성 없이 이분법으로 푼다.
+    """
+    if not cashflows or years <= 0 or final_value <= 0:
+        return 0.0
+
+    def npv(rate: float) -> float:
+        base = 1.0 + rate
+        if base <= 1e-9:
+            return float("inf")
+        out = -sum(amt / base**t for t, amt in cashflows)
+        return out + final_value / base**years
+
+    lo, hi = -0.9999, 10.0
+    f_lo, f_hi = npv(lo), npv(hi)
+    if not (np.isfinite(f_lo) and np.isfinite(f_hi)) or f_lo * f_hi > 0:
+        return 0.0
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        f_mid = npv(mid)
+        if abs(f_mid) < 1e-9:
+            return float(mid)
+        if f_lo * f_mid <= 0:
+            hi, f_hi = mid, f_mid
+        else:
+            lo, f_lo = mid, f_mid
+    return float((lo + hi) / 2)
+
+
+def contribution_metrics(
+    result: "BacktestResult", config: BacktestConfig
+) -> dict[str, float]:
+    """적립식 지표. 적립이 없으면 빈 dict."""
+    if result.contributions is None or result.balance is None:
+        return {}
+    deposited = float(result.contributions.sum())
+    if deposited <= 0:
+        return {}
+
+    invested = config.initial_cash + deposited
+    final = float(result.balance.iloc[-1])
+    td = config.trading_days
+    n = len(result.balance)
+
+    idx = result.balance.index
+    flows = [(0.0, config.initial_cash)]
+    nz = result.contributions[result.contributions > 0]
+    for date, amt in nz.items():
+        flows.append((float(idx.searchsorted(date)) / td, float(amt)))
+
+    return {
+        "total_invested": invested,
+        "final_balance": final,
+        "net_profit": final - invested,
+        "mwr": money_weighted_return(flows, final, n / td),
+    }
+
+
 def compute_metrics(result: "BacktestResult", config: BacktestConfig) -> dict[str, float]:
     """백테스트 결과 -> 지표 딕셔너리."""
     eq, rets, pos = result.equity, result.returns, result.position
@@ -138,6 +204,7 @@ def compute_metrics(result: "BacktestResult", config: BacktestConfig) -> dict[st
         "worst_day": float(rets.min()) if len(rets) else 0.0,
     }
     metrics.update(trade_stats(result.trades))
+    metrics.update(contribution_metrics(result, config))
     return {k: metrics[k] for k in METRIC_ORDER if k in metrics}
 
 

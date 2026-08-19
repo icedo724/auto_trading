@@ -12,7 +12,8 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 |---|---|
 | [`docs/ALGORITHM.md`](docs/ALGORITHM.md) | 지표·전략·체결회계·목적함수·검증의 **수식 정의** |
 | [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | 무료/유료 데이터 경계, 증권사 API, 데이터 품질 함정 |
-| [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | **로컬 실전 운용 준비 단계별 작업 목록** |
+| [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | 로컬 실전 운용 준비 단계별 작업 목록 |
+| [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | **소액 적립식(월 10만원) 운용의 현실** — 거래 빈도와 비용 |
 
 ---
 
@@ -76,8 +77,9 @@ quant/
 | `bollinger` | 회귀/돌파 | 밴드 이탈 매수 → 중심선 청산 | 48 |
 | `zscore` | 회귀 | 가격 z-score 진입/청산 문턱 | 72 |
 | `vol_target` | 추세+리스크 | 이평 위에서만 보유, 비중 = 목표변동성/실현변동성 | 27 |
+| `grid` | 분할매매 | 기준선 대비 이격도로 계단식 분할 매수/매도 | 54 |
 
-기본 그리드 합계 **385 조합**. `configs/*.yaml`의 `optimize.grids`로 덮어쓸 수 있다.
+기본 그리드 합계 **439 조합**. `configs/*.yaml`의 `optimize.grids`로 덮어쓸 수 있다.
 
 ### 새 전략 추가
 
@@ -258,6 +260,7 @@ python -m quant validate -c configs/experiment_demo.yaml
 | `fdr` | 국내·미국·지수·환율 | `finance-datareader` | 불필요 | **국내 권장** |
 | `naver` | 국내 주식 | 없음 | 불필요 | 의존성 0. FDR 막혔을 때 우회로 |
 | `krx` | 국내 주식 | `pykrx` | 선택 | 투자자별 매매동향·공매도 등 KRX 고유 데이터 |
+| `upbit` | 코인 (원화마켓) | 없음 | 불필요 | 소수점 매매 — 소액 분산에 유리 |
 | `yahoo` | 미국/글로벌 | `yfinance` | 불필요 | 티커 (`AAPL`, `SPY`) |
 | `csv` | 임의 | 없음 | — | `data/csv/<종목>.csv` |
 | `synthetic` | — | 없음 | — | 합성 시세. 종목코드로 시드 고정 → 항상 동일 |
@@ -291,7 +294,8 @@ python -m pytest tests/ -q      # 66 passed
 - **비용 정합성** — 무의미한 매매 반복 시 정확히 비용만큼 손실
 - **손절/익절/추적손절** 체결가, **정수 주** 모드, **공매도** 방향
 - **직렬 == 병렬** 결과 일치
-- **데이터 어댑터** — 실제 응답 형태(네이버 리터럴, FDR/pykrx 컬럼)를 모킹해 파싱 검증
+- **데이터 어댑터** — 실제 응답 형태(네이버 리터럴, FDR/pykrx 컬럼, 업비트 페이징)를 모킹해 검증
+- **적립 회계** — 입금이 수익률·MDD를 오염시키지 않는지 (TWR/MWR 분리)
 
 ---
 

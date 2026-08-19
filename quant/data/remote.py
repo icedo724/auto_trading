@@ -208,3 +208,86 @@ class YahooSource(DataSource):
                 "(티커 오타, 기간, 또는 네트워크/프록시 차단 확인)"
             )
         return df
+
+
+class UpbitSource(DataSource):
+    """업비트 공개 시세 API — **인증 불필요**, 원화마켓 코인 일봉.
+
+    소액 자동매매에 코인이 유리한 이유:
+      · 소수점 매매 → 10만원으로도 여러 종목 분산 가능 (주식은 1주 단위)
+      · 왕복 비용 약 20bp (국내주식 31bp), 증권거래세 없음
+      · 최소 주문 5,000원
+
+    심볼은 ``KRW-BTC`` 또는 ``BTC`` (자동으로 KRW 마켓으로 해석).
+    """
+
+    name = "upbit"
+    URL = "https://api.upbit.com/v1/candles/days"
+    MAX_COUNT = 200  # 1회 요청 상한
+
+    def __init__(self, *, timeout: int = 15, quote: str = "KRW") -> None:
+        self.timeout = timeout
+        self.quote = quote
+
+    def market_code(self, symbol: str) -> str:
+        s = symbol.strip().upper()
+        return s if "-" in s else f"{self.quote}-{s}"
+
+    def _fetch(self, symbol: str, start: str, end: str) -> pd.DataFrame:
+        import time
+
+        import requests
+
+        market = self.market_code(symbol)
+        start_ts, end_ts = pd.Timestamp(start), pd.Timestamp(end)
+
+        # 업비트는 최신부터 역순으로 최대 200개씩 준다. start 에 닿을 때까지 페이징.
+        rows: list[dict] = []
+        cursor = end_ts + pd.Timedelta(days=1)
+        for _ in range(200):  # 최대 40,000봉 (약 109년) — 무한루프 방지
+            params = {
+                "market": market,
+                "count": self.MAX_COUNT,
+                "to": cursor.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            try:
+                resp = requests.get(self.URL, params=params, timeout=self.timeout)
+                resp.raise_for_status()
+                batch = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                raise DataError(f"{symbol}: 업비트 요청 실패 - {exc}") from exc
+
+            if not batch:
+                break
+            rows.extend(batch)
+            oldest = pd.Timestamp(batch[-1]["candle_date_time_kst"])
+            if oldest <= start_ts or len(batch) < self.MAX_COUNT:
+                break
+            cursor = oldest
+            time.sleep(0.15)  # 공개 API 유량 제한 배려
+
+        return self.parse(rows, symbol)
+
+    @staticmethod
+    def parse(rows: list[dict], symbol: str = "") -> pd.DataFrame:
+        """업비트 캔들 JSON -> OHLCV DataFrame."""
+        if not rows:
+            raise DataError(
+                f"{symbol}: 업비트 응답이 비어 있습니다. (마켓코드 확인: KRW-BTC 형식)"
+            )
+        df = pd.DataFrame(rows)
+        need = {
+            "candle_date_time_kst": "date",
+            "opening_price": "open",
+            "high_price": "high",
+            "low_price": "low",
+            "trade_price": "close",
+            "candle_acc_trade_volume": "volume",
+        }
+        missing = [c for c in need if c not in df.columns]
+        if missing:
+            raise DataError(f"{symbol}: 업비트 응답에 컬럼 누락 {missing}")
+
+        df = df[list(need)].rename(columns=need)
+        df = df.set_index(pd.to_datetime(df["date"])).drop(columns=["date"])
+        return df[~df.index.duplicated(keep="first")].sort_index()

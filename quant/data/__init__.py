@@ -14,7 +14,7 @@ from .base import (
     slice_period,
 )
 from .csv_source import CachedSource, CsvSource
-from .remote import FdrSource, KrxSource, NaverSource, YahooSource
+from .remote import FdrSource, KrxSource, NaverSource, UpbitSource, YahooSource
 from .synthetic import SyntheticSource
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "KrxSource",
     "NaverSource",
     "SOURCE_ALIASES",
+    "UpbitSource",
     "SyntheticSource",
     "YahooSource",
     "align_to_calendar",
@@ -48,6 +49,9 @@ SOURCE_ALIASES: dict[str, str] = {
     "krx": "krx",  # pykrx
     "kr": "krx",
     "pykrx": "krx",
+    "upbit": "upbit",  # 업비트 코인 (무인증)
+    "coin": "upbit",
+    "crypto": "upbit",
     "yahoo": "yahoo",  # yfinance (해외 권장)
     "yf": "yahoo",
     "us": "yahoo",
@@ -82,6 +86,7 @@ def get_source(
         "fdr": FdrSource,
         "naver": NaverSource,
         "krx": KrxSource,
+        "upbit": UpbitSource,
         "yahoo": YahooSource,
     }[key]()
 

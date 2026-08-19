@@ -51,12 +51,21 @@ class BacktestResult:
     """단일 종목 백테스트 결과."""
 
     symbol: str
-    equity: pd.Series  # 일별 평가자산 (trade_start 이후)
-    returns: pd.Series  # 일별 수익률
+    equity: pd.Series  # TWR 지수 (initial_cash 기준). 전략 성과 비교·지표 계산용
+    returns: pd.Series  # 일별 시간가중수익률(TWR)
     position: pd.Series  # 일별 보유 비중
     trades: list[Trade] = field(default_factory=list)
     metrics: dict[str, float] = field(default_factory=dict)
     total_cost: float = 0.0  # 누적 거래비용 (통화 단위)
+    #: 실제 계좌 잔고 (적립 입금이 포함된 금액). 사용자가 체감하는 값
+    balance: pd.Series | None = None
+    #: 일별 입금액 (적립식). 대부분 0이고 입금일에만 값이 있다
+    contributions: pd.Series | None = None
+
+    @property
+    def total_deposited(self) -> float:
+        """적립으로 추가 입금한 금액의 합계 (초기자본 제외)."""
+        return float(self.contributions.sum()) if self.contributions is not None else 0.0
 
     @property
     def n_trades(self) -> int:
@@ -106,12 +115,19 @@ class Backtester:
 
         sim = self._simulate(df, target.to_numpy(), start_idx, symbol)
 
-        equity = sim["equity"].iloc[start_idx:]
-        if equity.empty:
+        balance = sim["equity"].iloc[start_idx:]
+        if balance.empty:
             raise ValueError(f"{symbol}: 평가 구간이 비어 있습니다.")
-        # 평가 구간 시작점을 초기자본으로 정규화 (파라미터 간 공정 비교)
-        equity = equity / equity.iloc[0] * cfg.initial_cash
-        returns = equity.pct_change().fillna(0.0)
+        contrib = sim["contrib"].iloc[start_idx:]
+
+        # 시간가중수익률(TWR): 입금액을 분모에 넣어 "입금 덕분에 늘어난 잔고"를
+        # 수익으로 오인하지 않게 한다. 입금은 봉 시작에 이뤄지므로
+        #     r_t = E_t / (E_{t-1} + c_t) - 1
+        prev = balance.shift(1)
+        denom = (prev + contrib).replace(0.0, np.nan)
+        returns = (balance / denom - 1.0).fillna(0.0)
+        # TWR 지수: 적립이 없으면 기존의 정규화 자산곡선과 정확히 일치한다
+        equity = cfg.initial_cash * (1.0 + returns).cumprod()
 
         trades = [t for t in sim["trades"] if t.exit_date >= equity.index[0]]
         result = BacktestResult(
@@ -121,6 +137,8 @@ class Backtester:
             position=sim["position"].iloc[start_idx:],
             trades=trades,
             total_cost=sim["total_cost"],
+            balance=balance,
+            contributions=contrib,
         )
         result.metrics = compute_metrics(result, cfg)
         return result
@@ -160,6 +178,9 @@ class Backtester:
         peak = 0.0  # 진입 후 최고가(롱) / 최저가(숏)
         blocked = False  # 강제청산 후 재진입 차단 (신호가 0으로 돌아올 때까지)
 
+        contrib_bars = self._contribution_bars(dates, start_idx)
+        contrib_arr = np.zeros(n)
+
         equity_arr = np.empty(n)
         pos_arr = np.zeros(n)
         trades: list[Trade] = []
@@ -173,9 +194,16 @@ class Backtester:
             return qty_abs * price * (comm + (tax if selling else 0.0))
 
         for i in range(n):
+            # ---------------- 0) 적립 입금 (봉 시작, 당일 매매에 사용 가능) ----------
+            if contrib_bars[i]:
+                cash += cfg.contribution
+                contrib_arr[i] = cfg.contribution
+
             price_close = cl[i]
             if not np.isfinite(price_close) or price_close <= 0:
-                # 상장 전/데이터 결측 구간: 매매하지 않고 자산만 유지
+                # 상장 전/데이터 결측 구간: 매매하지 않고 자산만 유지.
+                # 이 구간에 입금이 있었다면 그만큼 잔고에 더해야 한다.
+                last_equity += contrib_arr[i]
                 equity_arr[i] = last_equity
                 pos_arr[i] = 0.0
                 continue
@@ -206,6 +234,9 @@ class Backtester:
                 if not cfg.allow_fractional:
                     tgt_shares = float(np.trunc(tgt_shares))
                 delta = tgt_shares - shares
+                # 거래소 최소 주문금액 미만이면 주문 자체가 불가능하다
+                if cfg.min_order_value > 0 and abs(delta) * raw_exec < cfg.min_order_value:
+                    delta = 0.0
                 if delta != 0.0:
                     buying = delta > 0
                     fp = fill_price(raw_exec, buying)
@@ -299,11 +330,31 @@ class Backtester:
             )
 
         return {
-            "equity": pd.Series(equity_arr, index=dates, name="equity"),
+            "equity": pd.Series(equity_arr, index=dates, name="balance"),
+            "contrib": pd.Series(contrib_arr, index=dates, name="contribution"),
             "position": pd.Series(pos_arr, index=dates, name="position"),
             "trades": trades,
             "total_cost": total_cost,
         }
+
+    def _contribution_bars(self, dates: pd.DatetimeIndex, start_idx: int) -> np.ndarray:
+        """입금이 일어나는 봉을 표시한 불리언 배열.
+
+        각 기간(월/주/분기)의 **첫 거래일**에 입금한다. 평가 시작 시점의 자본은
+        이미 initial_cash 로 들어가 있으므로 그 기간은 건너뛴다.
+        """
+        flags = np.zeros(len(dates), dtype=bool)
+        cfg = self.config
+        if cfg.contribution <= 0 or start_idx >= len(dates):
+            return flags
+
+        period = dates.to_period({"M": "M", "W": "W", "Q": "Q"}[cfg.contribution_freq])
+        seen = {period[start_idx]}  # 첫 기간은 initial_cash 로 대체
+        for i in range(start_idx + 1, len(dates)):
+            if period[i] not in seen:
+                seen.add(period[i])
+                flags[i] = True
+        return flags
 
     def _stop_level(
         self, direction: int, entry_price: float, peak: float
