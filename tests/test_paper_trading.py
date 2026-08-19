@@ -242,3 +242,71 @@ def test_equity_curve_dedupes_same_bar(tmp_path):
         j.write("cycle", bar="2026-01-01", equity=eq, invested=100.0, cash=0.0)
     curve = equity_curve(j)
     assert len(curve) == 1 and curve["equity"].iloc[0] == 120.0   # 마지막 값
+
+
+# -------------------------------------------------------------- 가동률 / 놓친 봉
+def test_missed_bars_are_counted_not_replayed(live_env):
+    """서버가 꺼져 있던 구간은 소급 체결하지 않고 '기록'만 해야 한다.
+
+    과거 가격으로 되돌려 체결하면 그건 페이퍼 트레이딩이 아니라 백테스트다.
+    """
+    exp, tmp = live_env
+    c = cfg()
+    t = PaperTrader(exp, create_strategy("buy_and_hold"), c,
+                    state_dir=tmp / "state", name="t")
+    t.run_once()
+
+    # 10봉 전에 멈춘 것처럼 되돌린다 (= 서버가 10일 꺼져 있었음)
+    from quant.data import get_source
+    df = get_source("csv", cache_dir=None, csv_dir=exp["data"]["csv_dir"]).get(
+        "A", exp["data"]["start"], exp["data"]["end"]
+    )
+    stale = str(df.index[-11].date())   # 11번째 전 봉에서 멈춤
+    for sym in exp["data"]["symbols"]:
+        t.portfolio.last_bar[sym] = stale
+
+    n_fills_before = len(t.portfolio.fills)
+    res = t.run_once()
+
+    # prev(-11) 와 현재 봉(-1) 사이의 봉은 -10..-2 로 9개.
+    # 현재 봉은 지금 처리 중이므로 '놓친' 것이 아니다. 3종목 x 9봉 = 27.
+    assert res.missed_bars == 27, res.missed_bars
+    # 놓친 봉마다 체결하지 않는다 — 현재 봉 기준으로 한 번만 판단
+    assert len(t.portfolio.fills) - n_fills_before <= len(exp["data"]["symbols"])
+
+    events = [e for e in t.journal.read() if e["event"] == "missed_bars"]
+    assert len(events) == 3 and all(e["count"] == 9 for e in events)
+
+
+def test_no_missed_bars_on_healthy_run(live_env):
+    exp, tmp = live_env
+    t = PaperTrader(exp, create_strategy("buy_and_hold"), cfg(),
+                    state_dir=tmp / "state", name="t")
+    assert t.run_once().missed_bars == 0        # 최초 실행은 놓친 것이 없다
+    assert t.run_once().missed_bars == 0        # 같은 봉 재실행도 마찬가지
+
+
+def test_report_suppresses_verdict_when_uptime_is_poor(tmp_path):
+    from quant.live import Journal as J, format_comparison, live_metrics
+
+    bt = {"total_return": 0.05, "cagr": 0.5, "max_drawdown": -0.1,
+          "sharpe": 1.0, "ann_volatility": 0.4}
+
+    def build(missed: int) -> str:
+        j = J(tmp_path / f"j{missed}.jsonl")
+        for i in range(40):
+            j.write("cycle", bar=f"2026-01-{i + 1:02d}", equity=100_000 + i * 100,
+                    invested=100_000, cash=0.0)
+        if missed:
+            j.write("missed_bars", symbol="A", count=missed, last="x", current="y")
+        m = live_metrics(j, PaperPortfolio(cash=0.0, initial_cash=100_000), cfg())
+        assert m["missed_bars"] == missed
+        return format_comparison(m, bt)
+
+    bad = build(12)          # 23% 결손
+    assert "비교를 낼 수 없다" in bad
+    assert "✓" not in bad    # 판정을 내면 안 된다
+
+    good = build(1)          # 2% 결손
+    assert "비교를 낼 수 없다" not in good
+    assert "✓" in good

@@ -42,6 +42,8 @@ class CycleResult:
     deposited: float
     equity: float
     errors: list[str]
+    #: 서버가 꺼져 있던 동안 지나간 봉 수 (소급 체결하지 않고 기록만 한다)
+    missed_bars: int = 0
 
     @property
     def acted(self) -> bool:
@@ -134,17 +136,32 @@ class PaperTrader:
             data = self._load_data()
         except Exception as exc:  # noqa: BLE001
             self.journal.write("cycle_error", error=str(exc)[:300])
-            return CycleResult(now, [], [], [], 0.0, 0.0, [str(exc)[:300]])
+            return CycleResult(now, [], [], [], 0.0, 0.0, [str(exc)[:300]], 0)
 
         prices = {s: float(df["close"].iloc[-1]) for s, df in data.items()}
 
         # 새 봉이 마감된 종목만 처리 (멱등성)
         pending = {}
+        missed_total = 0
         for sym, df in data.items():
             bar = str(df.index[-1].date())
-            if not force and self.portfolio.last_bar.get(sym) == bar:
+            prev = self.portfolio.last_bar.get(sym)
+            if not force and prev == bar:
                 skipped.append(sym)
                 continue
+
+            # 서버가 꺼져 있던 동안 지나간 봉 수. 과거 가격으로 소급 체결하는 것은
+            # 페이퍼 트레이딩이 아니라 백테스트이므로, 재현하지 않고 '기록'만 한다.
+            # 이 값이 쌓이면 라이브 vs 백테스트 비교의 신뢰도가 떨어진다.
+            missed = 0
+            if prev is not None:
+                pos = df.index.searchsorted(pd.Timestamp(prev), side="right")
+                missed = max(int(len(df) - pos - 1), 0)
+            if missed:
+                missed_total += missed
+                self.journal.write(
+                    "missed_bars", symbol=sym, count=missed, last=prev, current=bar
+                )
             pending[sym] = (df, bar)
 
         deposited = self._maybe_deposit(now) if pending else 0.0
@@ -187,6 +204,7 @@ class PaperTrader:
         self.journal.write(
             "cycle",
             bar=max(bars) if bars else "",
+            missed=missed_total,
             processed=processed,
             skipped=len(skipped),
             n_fills=len(fills),
@@ -196,7 +214,9 @@ class PaperTrader:
             invested=round(self.portfolio.total_invested, 2),
             prices={k: round(v, 4) for k, v in prices.items()},
         )
-        return CycleResult(now, processed, skipped, fills, deposited, equity, errors)
+        return CycleResult(
+            now, processed, skipped, fills, deposited, equity, errors, missed_total
+        )
 
     def run_forever(
         self, interval_sec: int = 3600, *, stop_file: str | Path = "STOP", max_cycles: int = 0
@@ -216,6 +236,7 @@ class PaperTrader:
                 print(
                     f"[{res.timestamp}] {mark} 처리 {len(res.processed)} · "
                     f"체결 {len(res.fills)} · 평가 {res.equity:,.0f}원"
+                    + (f" · 놓친봉 {res.missed_bars}" if res.missed_bars else "")
                     + (f" · 오류 {len(res.errors)}" if res.errors else "")
                 )
                 cycles += 1

@@ -83,6 +83,8 @@ def live_metrics(
         "n_fills": float(len(portfolio.fills)),
         "total_fees": portfolio.total_fees,
         "fee_drag": portfolio.total_fees / invested if invested > 0 else 0.0,
+        "missed_bars": float(sum(int(r.get("count", 0)) for r in journal.read()
+                                 if r.get("event") == "missed_bars")),
     }
 
 
@@ -168,7 +170,25 @@ def format_comparison(live: dict[str, float], bt: dict[str, float]) -> str:
               f"수수료 부담 {live.get('fee_drag', 0):.2%}"]
 
     days = live.get("days", 0)
-    if days < 30:
+    missed = live.get("missed_bars", 0)
+    unreliable = False
+    if missed:
+        ratio = missed / max(days + missed, 1)
+        lines.append(
+            f"  놓친 봉 {missed:.0f}개 (전체의 {ratio:.0%}) — 서버가 꺼져 있던 구간"
+        )
+        if ratio > 0.10:
+            unreliable = True
+
+    # 판정은 자료가 믿을 만할 때만 낸다. 가동률이 낮으면 비교 자체가 무의미하다.
+    if unreliable:
+        lines += [
+            "",
+            "  ⚠ 놓친 봉이 10%를 넘어 비교를 낼 수 없다.",
+            "    백테스트는 그 구간에도 매매한 것으로 계산하므로 같은 실험이 아니다.",
+            "    가동률부터 고치고 다시 시작할 것 (docs/PAPER_TRADING.md '가동률').",
+        ]
+    elif days < 30:
         lines.append("\n  ※ 30일 미만은 표본이 너무 적다. 판단하지 말 것.")
     else:
         gap = live.get("cagr", 0) - bt.get("cagr", 0)
