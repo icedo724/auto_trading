@@ -212,3 +212,166 @@ def assess_report(report, *, trading_days: int | None = None) -> SignificanceRes
         sharpe_std=sharpe_std,
         trading_days=td,
     )
+
+
+# --------------------------------------------------------------------------------
+# PBO — 과최적화 확률 (Combinatorially Symmetric Cross-Validation)
+# --------------------------------------------------------------------------------
+@dataclass
+class PBOResult:
+    """백테스트 과최적화 확률."""
+
+    pbo: float  # 0~1. IS 1등이 OOS 중앙값 아래로 떨어질 확률
+    n_candidates: int
+    n_splits: int
+    n_combinations: int
+    median_oos_rank: float  # IS 1등의 OOS 상대순위 중앙값 (1.0 = 최고)
+    is_oos_slope: float  # IS 성과 -> OOS 성과 회귀 기울기
+
+    @property
+    def verdict(self) -> str:
+        if self.pbo <= 0.20:
+            return "견고 — IS 1등이 OOS 에서도 대체로 상위를 지킨다"
+        if self.pbo <= 0.50:
+            return "주의 — IS 1등이 절반 가까이 OOS 하위로 떨어진다"
+        return "과최적화 — IS 1등이 OOS 에서 동전던지기보다 못하다"
+
+    def format(self) -> str:
+        return "\n".join([
+            "과최적화 확률 (PBO · 조합적 교차검증)",
+            "=" * 64,
+            f"  후보 수              {self.n_candidates:>10,}",
+            f"  분할 블록 / 조합 수  {self.n_splits:>10,} / {self.n_combinations:,}",
+            "",
+            f"  IS 1등의 OOS 상대순위 (중앙값)  {self.median_oos_rank:>8.2f}"
+            "   (1.0=최고, 0.5=중간)",
+            f"  IS→OOS 성과 회귀 기울기         {self.is_oos_slope:>8.3f}"
+            "   (음수면 IS 좋을수록 OOS 나쁨)",
+            "",
+            f"  **PBO = {self.pbo:.1%}**",
+            "",
+            f"  판정: {self.verdict}",
+        ])
+
+
+def probability_of_backtest_overfitting(
+    returns_matrix: pd.DataFrame,
+    *,
+    n_splits: int = 10,
+    max_combinations: int = 1000,
+    seed: int = 0,
+) -> PBOResult:
+    """CSCV 로 PBO 를 계산한다.
+
+    returns_matrix : (시점 × 후보) 일별 수익률 행렬
+
+    아이디어: 기간을 S개 블록으로 쪼개고, 절반을 학습(IS)·절반을 검증(OOS)으로
+    **가능한 모든 방식으로** 나눈다. 매번 IS 1등을 고른 뒤 그것이 OOS 에서
+    몇 등인지 본다. IS 1등이 OOS 에서 자꾸 중간 이하로 떨어지면 = 과최적화.
+
+    워크포워드가 "시간 순서"만 보는 것과 달리, CSCV 는 **가능한 모든 분할**을
+    보므로 특정 구간의 운에 덜 좌우된다. 둘은 상호보완적이다.
+
+    참고: Bailey, Borwein, López de Prado & Zhu (2015).
+    """
+    from itertools import combinations
+
+    m = returns_matrix.dropna(axis=1, how="all").dropna()
+    n_obs, n_cand = m.shape
+    if n_cand < 2:
+        raise ValueError("후보가 2개 이상이어야 합니다.")
+    if n_splits % 2 != 0:
+        raise ValueError("n_splits 는 짝수여야 합니다.")
+    if n_obs < n_splits * 10:
+        raise ValueError(f"표본({n_obs})이 분할 수({n_splits})에 비해 너무 짧습니다.")
+
+    values = m.to_numpy(dtype=float)
+    blocks = np.array_split(np.arange(n_obs), n_splits)
+
+    def sharpe_cols(rows: np.ndarray) -> np.ndarray:
+        sub = values[rows]
+        sd = sub.std(axis=0, ddof=1)
+        mu = sub.mean(axis=0)
+        out = np.divide(mu, sd, out=np.zeros_like(mu), where=sd > 0)
+        return np.nan_to_num(out)
+
+    half = n_splits // 2
+    all_combos = list(combinations(range(n_splits), half))
+    rng = np.random.default_rng(seed)
+    if len(all_combos) > max_combinations:
+        picked = rng.choice(len(all_combos), size=max_combinations, replace=False)
+        all_combos = [all_combos[i] for i in picked]
+
+    logits: list[float] = []
+    ranks: list[float] = []
+    is_perf: list[float] = []
+    oos_perf: list[float] = []
+
+    for combo in all_combos:
+        train_idx = np.concatenate([blocks[i] for i in combo])
+        test_idx = np.concatenate([blocks[i] for i in range(n_splits) if i not in combo])
+
+        is_sr = sharpe_cols(train_idx)
+        oos_sr = sharpe_cols(test_idx)
+
+        best = int(np.argmax(is_sr))
+        # OOS 에서의 상대순위 (1.0 = 최고)
+        rank = float((oos_sr <= oos_sr[best]).sum()) / (n_cand + 1)
+        rank = min(max(rank, 1e-6), 1 - 1e-6)
+
+        ranks.append(rank)
+        logits.append(math.log(rank / (1.0 - rank)))
+        is_perf.append(float(is_sr[best]))
+        oos_perf.append(float(oos_sr[best]))
+
+    logit_arr = np.array(logits)
+    pbo = float((logit_arr <= 0).mean())
+
+    # IS 성과가 OOS 성과를 얼마나 설명하는가 (음수면 역효과)
+    x, y = np.array(is_perf), np.array(oos_perf)
+    slope = 0.0
+    if x.size > 2 and x.std() > 0:
+        slope = float(np.polyfit(x, y, 1)[0])
+
+    return PBOResult(
+        pbo=pbo,
+        n_candidates=n_cand,
+        n_splits=n_splits,
+        n_combinations=len(all_combos),
+        median_oos_rank=float(np.median(ranks)),
+        is_oos_slope=slope,
+    )
+
+
+def collect_returns_matrix(
+    data: dict,
+    candidates,
+    config,
+    trade_start=None,
+    *,
+    max_candidates: int = 300,
+) -> pd.DataFrame:
+    """후보별 포트폴리오 일별 수익률 행렬 (PBO 입력용).
+
+    후보가 많으면 메모리·시간이 커지므로 ``max_candidates`` 개까지만 균등 표집한다.
+    """
+    from .optimizer import common_trade_start, evaluate_candidate, obj_sharpe
+
+    cands = list(candidates)
+    if len(cands) > max_candidates:
+        step = len(cands) / max_candidates
+        cands = [cands[int(i * step)] for i in range(max_candidates)]
+
+    if trade_start is None:
+        trade_start = common_trade_start(next(iter(data.values())).index, cands)
+
+    cols: dict[str, pd.Series] = {}
+    for c in cands:
+        res = evaluate_candidate(
+            c, data, config, trade_start, obj_sharpe, store_equity=True, min_trades=0
+        )
+        if res.equity is not None:
+            cols[c.describe()] = res.equity.pct_change()
+    if not cols:
+        raise ValueError("수익률을 수집한 후보가 없습니다.")
+    return pd.DataFrame(cols)

@@ -16,7 +16,8 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 | [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | 소액 적립식(월 10만원) 운용의 현실 — 거래 빈도와 비용 |
 | [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 24시간 운용 (가상 자금, 서버 없이 무료 가능) |
 | [`docs/COSTS.md`](docs/COSTS.md) | 비용 정리 — 데이터·인프라·거래비용·세금 |
-| [`docs/HOW_PROS_DO_IT.md`](docs/HOW_PROS_DO_IT.md) | **실제 퀀트 회사는 어떻게 하는가** — 따라할 것 / 못 할 것 / 하면 안 되는 것 |
+| [`docs/HOW_PROS_DO_IT.md`](docs/HOW_PROS_DO_IT.md) | 실제 퀀트 회사는 어떻게 하는가 — 따라할 것 / 못 할 것 |
+| [`docs/STATISTICS.md`](docs/STATISTICS.md) | **통계로 알고리즘 개선하기** — 앙상블·DSR·PBO·부트스트랩 실행 계획 |
 
 ---
 
@@ -61,7 +62,9 @@ quant/
 ├── metrics.py       CAGR/Sharpe/Sortino/MDD/Calmar/PF/회전율 ...
 ├── optimizer.py     그리드 탐색 · 목적함수 · 민감도 분석
 ├── validation.py    IS/OOS 분할 · 워크포워드
-├── significance.py  PSR / DSR — 다중검정 보정
+├── significance.py  PSR / DSR / PBO — 다중검정 보정 · 과최적화 확률
+├── bootstrap.py     블록 부트스트랩 — 신뢰구간 · 쌍대 비교
+├── ensemble.py      앙상블 · 변동성 타겟 래퍼
 ├── report.py        마크다운/CSV/PNG 리포트
 └── cli.py           명령줄 진입점
 ```

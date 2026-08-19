@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -138,8 +138,14 @@ def walk_forward(
     min_trades: int = 5,
     workers: int | None = None,
     progress: bool = True,
+    selector: "Callable[[Any], Strategy] | None" = None,
 ) -> WalkForwardResult:
-    """학습창을 굴리며 매 구간 최적 파라미터를 재선택하고 OOS 수익률을 이어붙인다."""
+    """학습창을 굴리며 매 구간 전략을 재선택하고 OOS 수익률을 이어붙인다.
+
+    ``selector`` 를 주면 "무엇을 고를지"를 바꿀 수 있다. 기본값은 점수 1등(argmax)
+    이지만, 잡음 섞인 추정치의 최댓값은 편향된 추정량이므로 상위 K개 앙상블 같은
+    대안이 OOS 에서 더 나을 수 있다. ``compare_selectors`` 로 직접 비교하라.
+    """
     calendar = next(iter(data.values())).index
     obj_fn = get_objective(objective)
     warmup_start = common_trade_start(calendar, candidates)
@@ -175,7 +181,9 @@ def walk_forward(
             start += test_days
             continue
 
-        strat = create_strategy(best.strategy, best.params)
+        strat = selector(is_report) if selector is not None else create_strategy(
+            best.strategy, best.params
+        )
         test_slice = {s: df.iloc[:test_end] for s, df in data.items()}
         oos = evaluate_candidate(
             strat, test_slice, config, test_start_date, obj_fn,
@@ -191,7 +199,9 @@ def walk_forward(
                 "train_end": calendar[train_end - 1].strftime("%Y-%m-%d"),
                 "test_start": test_start_date.strftime("%Y-%m-%d"),
                 "test_end": test_end_date.strftime("%Y-%m-%d"),
-                "selected": best.label,
+                "selected": (
+                    strat.describe() if selector is not None else best.label
+                ),
                 "is_score": round(best.score, 4),
                 "is_cagr": round(best.metrics.get("cagr", 0.0), 4),
                 "is_sharpe": round(best.metrics.get("sharpe", 0.0), 3),
@@ -230,3 +240,35 @@ def walk_forward(
     result.oos_equity = equity
     result.oos_metrics = metrics
     return result
+
+
+# --------------------------------------------------------------------------------
+# 선택 방식 비교 — "1등을 고르는 것"이 최선인가
+# --------------------------------------------------------------------------------
+def compare_selectors(
+    data: dict[str, pd.DataFrame],
+    candidates: Sequence[Strategy],
+    config: BacktestConfig,
+    selectors: dict[str, "Callable[[Any], Strategy]"],
+    *,
+    train_days: int = 504,
+    test_days: int = 126,
+    objective: str = "robust",
+    min_trades: int = 5,
+    workers: int | None = None,
+    progress: bool = True,
+) -> dict[str, WalkForwardResult]:
+    """여러 선택 방식을 **같은 워크포워드 창**에서 비교한다.
+
+    창 분할·후보군·비용이 전부 동일하므로 차이는 오직 '무엇을 고르는가'에서 온다.
+    """
+    out: dict[str, WalkForwardResult] = {}
+    for name, sel in selectors.items():
+        if progress:
+            print(f"\n[선택방식] {name}")
+        out[name] = walk_forward(
+            data, candidates, config,
+            train_days=train_days, test_days=test_days, objective=objective,
+            min_trades=min_trades, workers=workers, progress=False, selector=sel,
+        )
+    return out
