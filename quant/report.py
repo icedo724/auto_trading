@@ -166,6 +166,31 @@ def optimization_markdown(
         per_sym = per_sym[cols].reset_index().rename(columns={"index": "symbol"})
         lines += [_md_table(per_sym), ""]
 
+    try:
+        from .significance import assess_report
+
+        sig = assess_report(report)
+        lines += [
+            "## 통계적 유의성 (다중검정 보정)",
+            "",
+            "> 수백 개 조합을 시험하고 1등을 고르면 그 Sharpe 는 **반드시** 부풀려진다.",
+            "> DSR 은 '그만큼 시도했을 때 우연히 기대되는 최대 Sharpe'를 기준선으로 삼는다.",
+            "",
+            _md_table(pd.DataFrame([{
+                "관측 Sharpe": round(sig.sharpe, 3),
+                "표본(봉)": sig.n_obs,
+                "시험 조합": sig.n_trials,
+                "우연 기대 최대 SR": round(sig.threshold, 3),
+                "PSR": f"{sig.psr:.1%}",
+                "DSR": f"{sig.dsr:.1%}",
+            }])),
+            "",
+            f"**판정: {sig.verdict}**",
+            "",
+        ]
+    except ValueError:
+        pass
+
     if sensitivity_params:
         from .optimizer import sensitivity
 

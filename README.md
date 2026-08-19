@@ -15,7 +15,8 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 | [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | 로컬 실전 운용 준비 단계별 작업 목록 |
 | [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | 소액 적립식(월 10만원) 운용의 현실 — 거래 빈도와 비용 |
 | [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 24시간 운용 (가상 자금, 서버 없이 무료 가능) |
-| [`docs/COSTS.md`](docs/COSTS.md) | **비용 정리** — 데이터·인프라·거래비용·세금, 무엇이 무료이고 무엇이 아닌지 |
+| [`docs/COSTS.md`](docs/COSTS.md) | 비용 정리 — 데이터·인프라·거래비용·세금 |
+| [`docs/HOW_PROS_DO_IT.md`](docs/HOW_PROS_DO_IT.md) | **실제 퀀트 회사는 어떻게 하는가** — 따라할 것 / 못 할 것 / 하면 안 되는 것 |
 
 ---
 
@@ -60,6 +61,7 @@ quant/
 ├── metrics.py       CAGR/Sharpe/Sortino/MDD/Calmar/PF/회전율 ...
 ├── optimizer.py     그리드 탐색 · 목적함수 · 민감도 분석
 ├── validation.py    IS/OOS 분할 · 워크포워드
+├── significance.py  PSR / DSR — 다중검정 보정
 ├── report.py        마크다운/CSV/PNG 리포트
 └── cli.py           명령줄 진입점
 ```
@@ -202,7 +204,7 @@ validate:
 
 ## 6. 과최적화 방어
 
-그리드 1위는 "그 구간에서 가장 운이 좋았던 조합"일 수 있다. 세 겹으로 방어한다.
+그리드 1위는 "그 구간에서 가장 운이 좋았던 조합"일 수 있다. 네 겹으로 방어한다.
 
 **① 목적함수 `robust` (기본값)**
 
@@ -231,7 +233,19 @@ python -m quant sensitivity -c configs/experiment_demo.yaml -s donchian
 특정 값 하나만 뾰족하게 튀면 과최적화 신호. 이웃 값들도 고르게 좋은
 **평평한 영역(plateau)** 을 골라야 실전에서 재현된다.
 
-**③ IS/OOS + 워크포워드**
+**③ 다중검정 보정 (DSR)**
+
+수백 개 조합을 시험하고 1등을 고르면 그 Sharpe 는 **반드시** 부풀려진다.
+`optimize` 는 시도 횟수를 벌점으로 매긴 **Deflated Sharpe Ratio** 를 함께 낸다.
+
+```
+  우연 기대 최대 SR       1.058   ← 366번 시도하면 이 정도는 그냥 나온다
+  PSR (기준 0)            98.0%
+  DSR (보정 후)           14.2%
+  판정: 유의하지 않음 — 탐색 과정의 산물일 가능성이 높다
+```
+
+**④ IS/OOS + 워크포워드**
 
 ```bash
 python -m quant validate -c configs/experiment_demo.yaml

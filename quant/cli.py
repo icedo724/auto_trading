@@ -260,6 +260,15 @@ def cmd_optimize(args: argparse.Namespace) -> int:
     if best.equity is not None:
         print(f"\n  {sparkline(best.equity)}")
 
+    # 다중검정 보정 — 수백 개를 돌려 1등을 골랐다는 사실 자체가 성과를 부풀린다
+    try:
+        from .significance import assess_report
+
+        sig = assess_report(report)
+        print("\n" + sig.format())
+    except ValueError as exc:
+        print(f"\n[유의성 판정 생략] {exc}")
+
     outdir = args.out or o.get("output_dir", "reports")
     sens_params = [
         (best.strategy, p)
