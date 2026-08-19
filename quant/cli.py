@@ -410,6 +410,102 @@ def cmd_signal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _paper_setup(args: argparse.Namespace):
+    """설정 · 전략 · 트레이더를 구성한다."""
+    from .live import PaperTrader
+
+    exp = load_experiment(args.config)
+    config = build_backtest_config(exp)
+
+    if args.best_file:
+        payload = json.loads(Path(args.best_file).read_text(encoding="utf-8"))
+        strat = create_strategy(payload["strategy"], payload.get("params", {}))
+    elif args.strategy:
+        strat = create_strategy(args.strategy, _parse_params(args.param, args.strategy))
+    else:
+        raise SystemExit("--strategy 또는 --best-file 중 하나가 필요합니다.")
+
+    trader = PaperTrader(exp, strat, config, state_dir=args.state_dir, name=args.name)
+    return exp, config, strat, trader
+
+
+def cmd_paper(args: argparse.Namespace) -> int:
+    """실데이터 · 가상자금 페이퍼 트레이딩. 실제 주문은 절대 내지 않는다."""
+    exp, config, strat, trader = _paper_setup(args)
+
+    print(f"[페이퍼] {strat.describe()}")
+    print(f"[페이퍼] 상태 {trader.state_path} · 저널 {trader.journal.path}")
+    print(f"[페이퍼] 초기자본 {config.initial_cash:,.0f}원"
+          + (f" · 적립 {config.contribution:,.0f}원/{config.contribution_freq}"
+             if config.contribution > 0 else "")
+          + "  ※ 가상 자금 — 실제 주문 없음\n")
+
+    if args.loop:
+        return trader.run_forever(
+            interval_sec=args.interval, stop_file=args.stop_file, max_cycles=args.max_cycles
+        )
+
+    res = trader.run_once(force=args.force)
+    if res.errors:
+        for e in res.errors:
+            print(f"  [오류] {e}")
+    print(f"  처리 {len(res.processed)}종목 · 건너뜀 {len(res.skipped)} · 체결 {len(res.fills)}건")
+    for f in res.fills:
+        print(f"    {f['side']:<4} {f['symbol']:<10} {f['quantity']:.8f} @ {f['price']:,.2f}"
+              f"  수수료 {f['fee']:,.0f}원")
+    if res.deposited:
+        print(f"  적립 입금 {res.deposited:,.0f}원")
+    print(f"  평가금액 {res.equity:,.0f}원")
+    return 1 if res.errors and not res.processed else 0
+
+
+def cmd_paper_status(args: argparse.Namespace) -> int:
+    from .live import format_status
+
+    exp, config, strat, trader = _paper_setup(args)
+    data = load_data(exp)
+    prices = {s: float(df["close"].iloc[-1]) for s, df in data.items()}
+    print()
+    print(format_status(trader.portfolio, prices))
+    return 0
+
+
+def cmd_paper_report(args: argparse.Namespace) -> int:
+    from .live import (
+        backtest_reference, format_comparison, format_status,
+        live_metrics, save_live_report,
+    )
+
+    exp, config, strat, trader = _paper_setup(args)
+    data = load_data(exp)
+    prices = {s: float(df["close"].iloc[-1]) for s, df in data.items()}
+
+    print()
+    print(format_status(trader.portfolio, prices))
+
+    live = live_metrics(trader.journal, trader.portfolio, config)
+    if not live:
+        print("\n아직 사이클이 부족해 성과를 낼 수 없습니다.")
+        return 0
+
+    start = trader.portfolio.created_at[:10]
+    end = max(str(df.index[-1].date()) for df in data.values())
+    try:
+        bt = backtest_reference(exp, strat, config, start, end)
+    except Exception as exc:  # noqa: BLE001 - 비교는 부가 기능이므로 실패해도 진행
+        print(f"\n[경고] 백테스트 기준선 계산 실패: {exc}")
+        bt = {}
+
+    print()
+    print(format_comparison(live, bt))
+
+    outdir = args.out or exp.get("optimize", {}).get("output_dir", "reports") + "/live"
+    written = save_live_report(outdir, trader.journal, trader.portfolio, config)
+    if written:
+        print("\n저장:", ", ".join(str(v) for v in written.values()))
+    return 0
+
+
 def cmd_sensitivity(args: argparse.Namespace) -> int:
     exp = load_experiment(args.config)
     config = build_backtest_config(exp)
@@ -485,6 +581,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("-s", "--strategy", required=True)
     sp.add_argument("--objective", choices=sorted(OBJECTIVES), default=None)
     sp.set_defaults(func=cmd_sensitivity)
+
+    def add_paper_args(sp: argparse.ArgumentParser) -> None:
+        add_common(sp)
+        sp.add_argument("-s", "--strategy", default=None)
+        sp.add_argument("-p", "--param", action="append")
+        sp.add_argument("--best-file", default=None,
+                        help="optimize 가 저장한 optimization_best.json")
+        sp.add_argument("--state-dir", default="state", help="상태·저널 저장 위치")
+        sp.add_argument("--name", default="paper", help="여러 실험을 병행할 때의 구분 이름")
+
+    sp = sub.add_parser("paper", help="실데이터·가상자금 페이퍼 트레이딩 (실제 주문 없음)")
+    add_paper_args(sp)
+    sp.add_argument("--loop", action="store_true", help="주기 실행 (서버 상주)")
+    sp.add_argument("--interval", type=int, default=3600, help="--loop 시 실행 간격(초)")
+    sp.add_argument("--max-cycles", type=int, default=0, help="0이면 무한")
+    sp.add_argument("--stop-file", default="STOP", help="이 파일이 생기면 안전 종료")
+    sp.add_argument("--force", action="store_true",
+                    help="이미 처리한 봉도 다시 처리 (디버깅용)")
+    sp.set_defaults(func=cmd_paper)
+
+    sp = sub.add_parser("paper-status", help="페이퍼 계좌 현황")
+    add_paper_args(sp)
+    sp.set_defaults(func=cmd_paper_status)
+
+    sp = sub.add_parser("paper-report", help="페이퍼 성과 + 백테스트 비교")
+    add_paper_args(sp)
+    sp.set_defaults(func=cmd_paper_report)
 
     sp = sub.add_parser("signal", help="최신 봉 기준 매매 신호 산출")
     add_common(sp)

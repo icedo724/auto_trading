@@ -1,0 +1,16 @@
+# quant-paper.timer 가 호출하는 1회 실행 유닛.
+[Unit]
+Description=Quant paper trading single cycle
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/home/%i/auto_trading
+EnvironmentFile=-/home/%i/auto_trading/.env
+ExecStart=/home/%i/auto_trading/.venv/bin/python -m quant paper \
+    --config configs/experiment_coin.yaml \
+    --best-file reports/coin/optimization_best.json \
+    --state-dir state --name coin3m
+StandardOutput=journal
+StandardError=journal

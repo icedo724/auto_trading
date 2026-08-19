@@ -1,0 +1,44 @@
+# 페이퍼 트레이딩 상주 서비스 (실제 주문 없음 · 가상 자금)
+#
+#   sudo cp deploy/quant-paper.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quant-paper
+#   journalctl -u quant-paper -f          # 실시간 로그
+#
+# User / WorkingDirectory / ExecStart 경로를 본인 환경에 맞게 고칠 것.
+
+[Unit]
+Description=Quant paper trading (virtual money, real data)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/auto_trading
+EnvironmentFile=-/home/%i/auto_trading/.env
+
+# --loop: 상주하며 --interval 초마다 실행. STOP 파일이 생기면 스스로 종료.
+ExecStart=/home/%i/auto_trading/.venv/bin/python -m quant paper \
+    --config configs/experiment_coin.yaml \
+    --best-file reports/coin/optimization_best.json \
+    --state-dir state --name coin3m \
+    --loop --interval 3600
+
+# 죽으면 되살린다. 3개월 무인 운용의 핵심.
+Restart=always
+RestartSec=60
+
+# 로그는 journald 로 (journalctl -u quant-paper)
+StandardOutput=journal
+StandardError=journal
+
+# 최소 권한
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/%i/auto_trading/state /home/%i/auto_trading/data /home/%i/auto_trading/reports /home/%i/auto_trading/logs
+
+[Install]
+WantedBy=multi-user.target

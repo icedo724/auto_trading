@@ -13,7 +13,8 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 | [`docs/ALGORITHM.md`](docs/ALGORITHM.md) | 지표·전략·체결회계·목적함수·검증의 **수식 정의** |
 | [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | 무료/유료 데이터 경계, 증권사 API, 데이터 품질 함정 |
 | [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | 로컬 실전 운용 준비 단계별 작업 목록 |
-| [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | **소액 적립식(월 10만원) 운용의 현실** — 거래 빈도와 비용 |
+| [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | 소액 적립식(월 10만원) 운용의 현실 — 거래 빈도와 비용 |
+| [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 개인 서버 24시간 운용 (가상 자금) |
 
 ---
 
@@ -50,7 +51,7 @@ quant/
 ├── data/
 │   ├── base.py      OHLCV 스키마 정규화 · 공통 달력 정렬
 │   ├── synthetic.py 합성 시세 (네트워크 불필요, 종목코드 → 시드 고정)
-│   ├── remote.py    fdr · naver · pykrx(국내) · yfinance(해외)
+│   ├── remote.py    fdr · naver · pykrx(국내) · upbit(코인) · yfinance(해외)
 │   ├── probe.py     소스 가용성 진단 (check-data)
 │   └── csv_source.py CSV 소스 + 디스크 캐시
 ├── strategy/        전략 레지스트리 (@register 로 자동 등록)
@@ -124,7 +125,16 @@ python -m quant validate  -c ... --split 2022-01-01
 python -m quant signal    -c ... --best-file reports/demo/optimization_best.json
 
 ./run_daily.sh                  # 매일 15:40 스케줄 실행용 (킬 스위치·로그 포함)
-touch STOP                      # 킬 스위치 ON — run_daily 가 아무것도 하지 않는다
+touch STOP                      # 킬 스위치 ON — 실행 중인 루프도 안전 종료
+```
+
+**페이퍼 트레이딩** (실데이터 · 가상 자금 · 실제 주문 없음):
+
+```bash
+python -m quant paper        -c configs/experiment_coin.yaml --best-file ... --name coin3m
+python -m quant paper        -c ... --name coin3m --loop --interval 3600   # 서버 상주
+python -m quant paper-status -c ... --name coin3m       # 계좌 현황
+python -m quant paper-report -c ... --name coin3m       # 성과 + 백테스트 비교
 ```
 
 설정의 `start`/`end` 는 상대 표기를 지원한다. 스케줄 실행 시 **반드시** 상대 표기를
@@ -296,6 +306,8 @@ python -m pytest tests/ -q      # 66 passed
 - **직렬 == 병렬** 결과 일치
 - **데이터 어댑터** — 실제 응답 형태(네이버 리터럴, FDR/pykrx 컬럼, 업비트 페이징)를 모킹해 검증
 - **적립 회계** — 입금이 수익률·MDD를 오염시키지 않는지 (TWR/MWR 분리)
+- **페이퍼 트레이딩** — 멱등성(같은 봉 재실행 시 무거래), 재시작 후 상태 복원,
+  자본이 종목에 고르게 배분되는지, 원자적 저장, **주문 코드 부재 강제**
 
 ---
 

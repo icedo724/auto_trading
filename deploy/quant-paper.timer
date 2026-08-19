@@ -1,0 +1,17 @@
+# systemd 대신 '주기 실행'만 원할 때 (--loop 없이 1회 실행).
+# 상주 프로세스가 부담스럽거나 서버가 자주 재부팅되는 환경에 적합.
+#
+#   sudo cp deploy/quant-paper-once.service deploy/quant-paper.timer /etc/systemd/system/
+#   sudo systemctl enable --now quant-paper.timer
+#   systemctl list-timers quant-paper.timer
+
+[Unit]
+Description=Run quant paper trading cycle hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true          # 서버가 꺼져 있던 동안 놓친 실행을 부팅 후 보충
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
