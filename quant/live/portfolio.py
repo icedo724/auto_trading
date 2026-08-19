@@ -37,6 +37,49 @@ class Fill:
         return asdict(self)
 
 
+#: 거래하지 않은 이유 코드 -> 사람이 읽는 설명
+REASON_TEXT = {
+    "traded": "체결",
+    "below_threshold": "목표비중 변화가 리밸런싱 임계치 미만",
+    "below_min_order": "주문금액이 거래소 최소 주문금액 미만",
+    "insufficient_cash": "현금 부족 — 가능한 만큼만 체결",
+    "no_change": "목표비중과 현재비중이 같음",
+    "invalid_price": "유효하지 않은 가격",
+    "bankrupt": "평가자산이 0 이하",
+}
+
+
+@dataclass
+class Decision:
+    """한 종목에 대한 그날의 판단 — **거래하지 않은 이유까지 남긴다.**
+
+    "오늘 왜 아무것도 안 했지?"가 운용 중 가장 자주 나오는 질문이다.
+    체결만 기록하면 그 질문에 답할 수 없다.
+    """
+
+    symbol: str
+    action: str  # BUY / SELL / HOLD
+    reason: str  # REASON_TEXT 의 키
+    signal: float  # 전략이 낸 원본 신호 (0~1)
+    target_weight: float  # 종목 배분(1/N)까지 적용한 목표 비중
+    current_weight: float
+    price: float
+    fill: "Fill | None" = None
+
+    @property
+    def traded(self) -> bool:
+        return self.fill is not None
+
+    @property
+    def detail(self) -> str:
+        return REASON_TEXT.get(self.reason, self.reason)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {k: v for k, v in asdict(self).items() if k != "fill"}
+        d["fill"] = self.fill.to_dict() if self.fill else None
+        return d
+
+
 @dataclass
 class PaperPortfolio:
     """가상 계좌. 현금 + 종목별 수량."""
@@ -97,14 +140,24 @@ class PaperPortfolio:
         prices: dict[str, float],
         *,
         reason: str = "signal",
-    ) -> Fill | None:
-        """목표 비중에 맞춰 가상 체결. 실제로 거래가 없으면 None.
+        signal: float | None = None,
+    ) -> Decision:
+        """목표 비중에 맞춰 가상 체결하고 **판단 근거를 담은 Decision** 을 반환.
 
         백테스트 엔진의 리밸런싱 규칙을 그대로 따른다:
         임계치 미만이면 생략, 최소주문금액 미만이면 생략, 슬리피지·수수료 반영.
         """
+        sig = target_weight if signal is None else signal
+
+        def decide(action: str, why: str, cur: float, fill: Fill | None = None) -> Decision:
+            return Decision(
+                symbol=symbol, action=action, reason=why, signal=sig,
+                target_weight=target_weight, current_weight=cur,
+                price=price, fill=fill,
+            )
+
         if price <= 0:
-            return None
+            return decide("HOLD", "invalid_price", 0.0)
 
         comm = config.cost.commission_bps * BPS
         tax = config.cost.sell_tax_bps * BPS
@@ -112,25 +165,25 @@ class PaperPortfolio:
 
         equity = self.equity(prices)
         if equity <= 0:
-            return None
+            return decide("HOLD", "bankrupt", 0.0)
 
         held = self.positions.get(symbol, 0.0)
         current_w = held * price / equity
 
         need_flat = target_weight == 0.0 and held != 0.0
         if not need_flat and abs(target_weight - current_w) < config.rebalance_threshold:
-            return None
+            return decide("HOLD", "below_threshold", current_w)
 
         target_qty = target_weight * equity / price
         if not config.allow_fractional:
             target_qty = float(int(target_qty))
         delta = target_qty - held
         if delta == 0.0:
-            return None
+            return decide("HOLD", "no_change", current_w)
 
         notional = abs(delta) * price
         if config.min_order_value > 0 and notional < config.min_order_value:
-            return None
+            return decide("HOLD", "below_min_order", current_w)
 
         buying = delta > 0
         fill_price = price * (1.0 + slip) if buying else price * (1.0 - slip)
@@ -138,15 +191,17 @@ class PaperPortfolio:
         fee = qty * fill_price * (comm + (0.0 if buying else tax))
 
         cost = delta * fill_price + fee
+        short_of_cash = False
         if buying and cost > self.cash:
             # 현금 부족: 살 수 있는 만큼만 (가상이라도 마이너스 통장은 없다)
+            short_of_cash = True
             affordable = self.cash / (fill_price * (1.0 + comm))
             if config.min_order_value > 0 and affordable * fill_price < config.min_order_value:
-                return None
+                return decide("HOLD", "below_min_order", current_w)
             if not config.allow_fractional:
                 affordable = float(int(affordable))
             if affordable <= 0:
-                return None
+                return decide("HOLD", "insufficient_cash", current_w)
             qty, delta = affordable, affordable
             fee = qty * fill_price * comm
             cost = delta * fill_price + fee
@@ -178,7 +233,12 @@ class PaperPortfolio:
         )
         self.fills.append(fill)
         self.updated_at = timestamp
-        return fill
+        return decide(
+            fill.side,
+            "insufficient_cash" if short_of_cash else "traded",
+            current_w,
+            fill,
+        )
 
     # ------------------------------------------------------------------ 저장
     def to_dict(self) -> dict[str, Any]:

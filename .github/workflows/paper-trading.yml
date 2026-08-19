@@ -50,11 +50,11 @@ jobs:
           # 최적 파라미터 파일이 없으면 설정에 적힌 전략을 직접 지정해 돌린다.
           if [[ -f "$BEST" ]]; then
             python -m quant paper -c "$CONFIG" --best-file "$BEST" \
-                   --state-dir state --name "$NAME"
+                   --state-dir state --name "$NAME" --out reports/live
           else
             echo "::notice::$BEST 없음 — grid 전략 기본값으로 실행합니다."
             python -m quant paper -c "$CONFIG" -s grid \
-                   --state-dir state --name "$NAME"
+                   --state-dir state --name "$NAME" --out reports/live
           fi
 
       - name: 상태 되커밋 (이것이 영속 저장소다)
@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f state/
+          git add -f state/ reports/live/
           if git diff --cached --quiet; then
             echo "변경 없음 — 커밋 생략 (새 봉이 없었다는 뜻)"
             exit 0
@@ -74,22 +74,15 @@ jobs:
           done
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      - name: 계좌 현황 요약
+      - name: 일일 리포트를 실행 요약에 표시
         if: always()
         run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, pathlib
-          p = pathlib.Path("state/coin3m.json")
-          if not p.exists():
-              print("아직 상태 파일이 없습니다."); raise SystemExit
-          d = json.loads(p.read_text(encoding="utf-8"))
-          invested = d["initial_cash"] + d["total_deposited"]
-          held = {k: v for k, v in d["positions"].items() if v}
-          print("## 페이퍼 계좌\n")
-          print(f"- 투입원금: {invested:,.0f}원")
-          print(f"- 현금: {d['cash']:,.0f}원")
-          print(f"- 누적수수료: {d['total_fees']:,.0f}원")
-          print(f"- 체결 건수: {len(d['fills'])}건")
-          print(f"- 보유: {', '.join(f'{k} {v:.8f}' for k, v in held.items()) or '없음'}")
-          print(f"- 갱신: {d['updated_at']}")
-          PY
+          # 리포트 전문을 Actions 요약 화면에 그대로 띄운다.
+          # 저장소를 열지 않고 Actions 탭만 봐도 판단할 수 있게.
+          REPORT="reports/live/coin3m_latest.md"
+          if [[ -f "$REPORT" ]]; then
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "리포트가 아직 없습니다 (첫 실행이거나 새 봉이 없었음)." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi

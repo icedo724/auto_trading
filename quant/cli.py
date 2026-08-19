@@ -434,7 +434,13 @@ def _paper_setup(args: argparse.Namespace):
     else:
         raise SystemExit("--strategy 또는 --best-file 중 하나가 필요합니다.")
 
-    trader = PaperTrader(exp, strat, config, state_dir=args.state_dir, name=args.name)
+    trader = PaperTrader(
+        exp, strat, config,
+        state_dir=args.state_dir,
+        name=args.name,
+        report_dir=args.out or "reports/live",
+        auto_report=not getattr(args, "no_report", False),
+    )
     return exp, config, strat, trader
 
 
@@ -465,6 +471,8 @@ def cmd_paper(args: argparse.Namespace) -> int:
     if res.deposited:
         print(f"  적립 입금 {res.deposited:,.0f}원")
     print(f"  평가금액 {res.equity:,.0f}원")
+    if res.report_path:
+        print(f"  리포트 {res.report_path}")
     return 1 if res.errors and not res.processed else 0
 
 
@@ -482,7 +490,7 @@ def cmd_paper_status(args: argparse.Namespace) -> int:
 def cmd_paper_report(args: argparse.Namespace) -> int:
     from .live import (
         backtest_reference, format_comparison, format_status,
-        live_metrics, save_live_report,
+        live_metrics, live_period, save_live_report,
     )
 
     exp, config, strat, trader = _paper_setup(args)
@@ -497,10 +505,12 @@ def cmd_paper_report(args: argparse.Namespace) -> int:
         print("\n아직 사이클이 부족해 성과를 낼 수 없습니다.")
         return 0
 
-    start = trader.portfolio.created_at[:10]
-    end = max(str(df.index[-1].date()) for df in data.values())
+    # 벽시계 시각이 아니라 라이브가 실제로 커버한 시장 날짜를 써야 한다
+    period = live_period(trader.journal)
     try:
-        bt = backtest_reference(exp, strat, config, start, end)
+        if period is None:
+            raise ValueError("시장 날짜 구간을 알 수 없습니다 (사이클 부족)")
+        bt = backtest_reference(exp, strat, config, *period)
     except Exception as exc:  # noqa: BLE001 - 비교는 부가 기능이므로 실패해도 진행
         print(f"\n[경고] 백테스트 기준선 계산 실패: {exc}")
         bt = {}
@@ -608,6 +618,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--stop-file", default="STOP", help="이 파일이 생기면 안전 종료")
     sp.add_argument("--force", action="store_true",
                     help="이미 처리한 봉도 다시 처리 (디버깅용)")
+    sp.add_argument("--no-report", action="store_true",
+                    help="일일 리포트 자동 생성 끄기")
     sp.set_defaults(func=cmd_paper)
 
     sp = sub.add_parser("paper-status", help="페이퍼 계좌 현황")

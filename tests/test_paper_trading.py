@@ -29,8 +29,9 @@ def new_portfolio(c: BacktestConfig) -> PaperPortfolio:
 def test_execute_applies_slippage_and_fee():
     c = cfg()
     p = new_portfolio(c)
-    f = p.execute("A", 1.0, 100.0, c, "t", PRICES)
-    assert f is not None and f.side == "BUY"
+    d = p.execute("A", 1.0, 100.0, c, "t", PRICES)
+    assert d.traded and d.action == "BUY"
+    f = d.fill
     assert f.price == pytest.approx(100.0 * 1.0005)      # 슬리피지 5bp
     assert f.fee == pytest.approx(f.quantity * f.price * 0.0005)  # 수수료 5bp
     assert p.total_fees == pytest.approx(f.fee)
@@ -41,15 +42,17 @@ def test_execute_respects_rebalance_threshold():
     p = new_portfolio(c)
     p.execute("A", 0.50, 100.0, c, "t", PRICES)
     n = len(p.fills)
-    assert p.execute("A", 0.55, 100.0, c, "t", PRICES) is None   # 5%p 변화 -> 생략
+    d = p.execute("A", 0.55, 100.0, c, "t", PRICES)              # 5%p 변화 -> 생략
+    assert not d.traded and d.reason == "below_threshold"
     assert len(p.fills) == n
 
 
 def test_execute_respects_min_order_value():
     c = cfg(min_order_value=50_000, rebalance_threshold=0.0)
     p = new_portfolio(c)
-    assert p.execute("A", 0.01, 100.0, c, "t", PRICES) is None   # 1,000원 주문 -> 거부
-    assert p.execute("A", 1.0, 100.0, c, "t", PRICES) is not None
+    small = p.execute("A", 0.01, 100.0, c, "t", PRICES)          # 1,000원 주문 -> 거부
+    assert not small.traded and small.reason == "below_min_order"
+    assert p.execute("A", 1.0, 100.0, c, "t", PRICES).traded
 
 
 def test_cash_never_goes_negative():
@@ -65,8 +68,8 @@ def test_full_exit_ignores_threshold():
     c = cfg(rebalance_threshold=0.50)
     p = new_portfolio(c)
     p.execute("A", 1.0, 100.0, c, "t", PRICES)
-    f = p.execute("A", 0.0, 100.0, c, "t", PRICES)
-    assert f is not None and f.side == "SELL"
+    d = p.execute("A", 0.0, 100.0, c, "t", PRICES)
+    assert d.traded and d.action == "SELL" and d.reason == "traded"
     assert p.positions["A"] == pytest.approx(0.0)
 
 

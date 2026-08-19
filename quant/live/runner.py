@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,7 @@ from ..data import DataError, get_source
 from ..dates import resolve_period
 from ..strategy import Strategy
 from .journal import Journal
-from .portfolio import PaperPortfolio
+from .portfolio import Decision, PaperPortfolio
 
 
 @dataclass
@@ -44,6 +44,10 @@ class CycleResult:
     errors: list[str]
     #: 서버가 꺼져 있던 동안 지나간 봉 수 (소급 체결하지 않고 기록만 한다)
     missed_bars: int = 0
+    #: 종목별 판단 — 거래하지 않은 이유까지 담겨 있다
+    decisions: list[Decision] = field(default_factory=list)
+    #: 자동 생성된 리포트 경로
+    report_path: Path | None = None
 
     @property
     def acted(self) -> bool:
@@ -61,12 +65,16 @@ class PaperTrader:
         *,
         state_dir: str | Path = "state",
         name: str = "paper",
+        report_dir: str | Path = "reports/live",
+        auto_report: bool = True,
     ) -> None:
         self.exp = experiment
         self.strategy = strategy
         self.config = config
         self.config.validate()
         self.name = name
+        self.report_dir = Path(report_dir)
+        self.auto_report = auto_report
         self.state_path = Path(state_dir) / f"{name}.json"
         self.journal = Journal(Path(state_dir) / f"{name}.jsonl")
 
@@ -131,12 +139,13 @@ class PaperTrader:
         skipped: list[str] = []
         fills: list[dict[str, Any]] = []
         errors: list[str] = []
+        decisions: list[Decision] = []
 
         try:
             data = self._load_data()
         except Exception as exc:  # noqa: BLE001
             self.journal.write("cycle_error", error=str(exc)[:300])
-            return CycleResult(now, [], [], [], 0.0, 0.0, [str(exc)[:300]], 0)
+            return CycleResult(now, [], [], [], 0.0, 0.0, [str(exc)[:300]], 0, [])
 
         prices = {s: float(df["close"].iloc[-1]) for s, df in data.items()}
 
@@ -181,17 +190,18 @@ class PaperTrader:
                 raw_target = max(0.0, min(float(sig.iloc[-1]), self.config.max_weight))
                 target = raw_target * allocation
 
-                fill = self.portfolio.execute(
-                    sym, target, prices[sym], self.config, now, prices
+                decision = self.portfolio.execute(
+                    sym, target, prices[sym], self.config, now, prices,
+                    signal=raw_target,
                 )
+                decisions.append(decision)
                 self.portfolio.last_bar[sym] = bar
                 processed.append(sym)
-                if fill is not None:
-                    fills.append(fill.to_dict())
-                    self.journal.write(
-                        "fill", bar=bar, signal=raw_target, target_weight=target,
-                        **fill.to_dict(),
-                    )
+
+                # 체결이든 아니든 판단을 남긴다 — "왜 안 샀지?"에 답하기 위해
+                self.journal.write("decision", bar=bar, **decision.to_dict())
+                if decision.fill is not None:
+                    fills.append(decision.fill.to_dict())
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{sym}: {exc}")
                 self.journal.write("symbol_error", symbol=sym, error=str(exc)[:300])
@@ -214,9 +224,39 @@ class PaperTrader:
             invested=round(self.portfolio.total_invested, 2),
             prices={k: round(v, 4) for k, v in prices.items()},
         )
-        return CycleResult(
-            now, processed, skipped, fills, deposited, equity, errors, missed_total
+        result = CycleResult(
+            now, processed, skipped, fills, deposited, equity, errors,
+            missed_total, decisions,
         )
+
+        # 매 사이클 리포트를 자동 기록한다 — 사람이 열어보고 판단할 수 있게
+        if self.auto_report and (processed or force):
+            try:
+                result.report_path = self.write_report(data, prices, result)
+            except Exception as exc:  # noqa: BLE001 - 리포트 실패로 운용이 멈추면 안 된다
+                self.journal.write("report_error", error=str(exc)[:300])
+
+        return result
+
+    def write_report(self, data, prices, cycle=None) -> Path:
+        """일일 리포트를 마크다운으로 기록한다.
+
+        ``<report_dir>/<name>_latest.md``  최신본 (항상 덮어씀)
+        ``<report_dir>/daily/<name>_YYYY-MM-DD.md``  날짜별 보관
+        """
+        from .daily import build_daily_report
+
+        text = build_daily_report(self, data, prices, cycle)
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+
+        latest = self.report_dir / f"{self.name}_latest.md"
+        latest.write_text(text, encoding="utf-8")
+
+        archive = self.report_dir / "daily"
+        archive.mkdir(parents=True, exist_ok=True)
+        stamp = pd.Timestamp(self._now()).strftime("%Y-%m-%d")
+        (archive / f"{self.name}_{stamp}.md").write_text(text, encoding="utf-8")
+        return latest
 
     def run_forever(
         self, interval_sec: int = 3600, *, stop_file: str | Path = "STOP", max_cycles: int = 0
@@ -238,6 +278,7 @@ class PaperTrader:
                     f"체결 {len(res.fills)} · 평가 {res.equity:,.0f}원"
                     + (f" · 놓친봉 {res.missed_bars}" if res.missed_bars else "")
                     + (f" · 오류 {len(res.errors)}" if res.errors else "")
+                    + (f"\n         리포트 {res.report_path}" if res.report_path else "")
                 )
                 cycles += 1
                 if max_cycles and cycles >= max_cycles:

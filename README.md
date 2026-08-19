@@ -143,6 +143,14 @@ python -m quant paper-status -c ... --name coin3m       # 계좌 현황
 python -m quant paper-report -c ... --name coin3m       # 성과 + 백테스트 비교
 ```
 
+**매 사이클마다 일일 리포트가 자동 기록된다** — 판정 신호등, 종목별 판단 근거
+(**거래하지 않은 이유 포함**), 성과와 신뢰구간, 백테스트 대비.
+
+```
+reports/live/coin3m_latest.md            최신본
+reports/live/daily/coin3m_2026-03-05.md  날짜별 보관
+```
+
 서버·PC가 없어도 된다. `.github/workflows/paper-trading.yml` 이 매일 한 번 실행하고
 갱신된 `state/` 를 저장소에 되커밋한다 — **하드웨어 없이 무료**로 3개월 운용이 가능하다.
 (저장소 Settings > Actions > Workflow permissions 를 Read and write 로 설정)

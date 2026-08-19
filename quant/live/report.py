@@ -43,6 +43,19 @@ def equity_curve(journal: Journal) -> pd.DataFrame:
     return out.groupby(level=0).last().sort_index()
 
 
+def live_period(journal: Journal) -> tuple[str, str] | None:
+    """라이브가 실제로 커버한 **시장 날짜** 구간.
+
+    포트폴리오의 created_at 은 벽시계 시각이라 시장 달력과 무관하다.
+    그것을 백테스트 대조군의 시작일로 쓰면 데이터 범위를 벗어나 거래가
+    하나도 안 잡히고, 결과적으로 "백테스트 0%" 라는 가짜 기준선이 나온다.
+    """
+    curve = equity_curve(journal)
+    if len(curve) < 2:
+        return None
+    return str(curve.index[0]), str(curve.index[-1])
+
+
 def live_metrics(
     journal: Journal, portfolio: PaperPortfolio, config: BacktestConfig
 ) -> dict[str, float]:
@@ -97,7 +110,11 @@ def backtest_reference(
     from ..metrics import compute_portfolio_metrics
 
     d = experiment["data"]
-    source = get_source(d.get("source", "synthetic"), cache_dir=d.get("cache_dir", "data/cache"))
+    source = get_source(
+        d.get("source", "synthetic"),
+        cache_dir=d.get("cache_dir", "data/cache"),
+        csv_dir=d.get("csv_dir", "data/csv"),
+    )
     # 지표 워밍업을 위해 과거를 넉넉히 받되 매매는 start 부터
     hist_start = (pd.Timestamp(start) - pd.Timedelta(days=max(strategy.warmup * 3, 400))).strftime("%Y-%m-%d")
     data = load_universe(source, list(d.get("symbols", [])), hist_start, end, min_bars=10)
