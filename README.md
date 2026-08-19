@@ -14,7 +14,7 @@ python -m quant optimize -c configs/experiment_demo.yaml   # 네트워크 없이
 | [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md) | 무료/유료 데이터 경계, 증권사 API, 데이터 품질 함정 |
 | [`docs/LIVE_TRADING.md`](docs/LIVE_TRADING.md) | 로컬 실전 운용 준비 단계별 작업 목록 |
 | [`docs/SMALL_ACCOUNT.md`](docs/SMALL_ACCOUNT.md) | 소액 적립식(월 10만원) 운용의 현실 — 거래 빈도와 비용 |
-| [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 개인 서버 24시간 운용 (가상 자금) |
+| [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) | **3개월 페이퍼 트레이딩** — 24시간 운용 (가상 자금, 서버 없이 무료 가능) |
 
 ---
 
@@ -136,6 +136,10 @@ python -m quant paper        -c ... --name coin3m --loop --interval 3600   # 서
 python -m quant paper-status -c ... --name coin3m       # 계좌 현황
 python -m quant paper-report -c ... --name coin3m       # 성과 + 백테스트 비교
 ```
+
+서버·PC가 없어도 된다. `.github/workflows/paper-trading.yml` 이 매일 한 번 실행하고
+갱신된 `state/` 를 저장소에 되커밋한다 — **하드웨어 없이 무료**로 3개월 운용이 가능하다.
+(저장소 Settings > Actions > Workflow permissions 를 Read and write 로 설정)
 
 설정의 `start`/`end` 는 상대 표기를 지원한다. 스케줄 실행 시 **반드시** 상대 표기를
 쓸 것 — 고정 날짜로 두면 신호가 그 날짜에 멈춘다.

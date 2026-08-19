@@ -122,12 +122,18 @@ python -m quant paper -c ... --best-file ... --name coin3m --loop --interval 360
 
 ---
 
-## 3. systemd 등록 — 3개월을 버티는 방법
+## 3. 24시간 돌리기 — 서버가 없어도 된다
+
+> **서버·PC가 아예 없다면 §3.5 의 GitHub Actions 로 건너뛰어도 된다.**
+> 하드웨어 없이 무료로 3개월을 돌릴 수 있고, 이 저장소에 워크플로가 이미 들어 있다.
+> 아래 systemd 절은 직접 굴릴 기기가 있을 때의 방법이다.
+
+### systemd 등록 — 3개월을 버티는 방법
 
 3개월 = 서버 재부팅, 네트워크 끊김, 프로세스 크래시가 **반드시** 일어나는 기간이다.
 `nohup ... &` 로는 못 버틴다.
 
-### 방식 A: 상주 서비스 (권장)
+#### 방식 A: 상주 서비스 (권장)
 
 ```bash
 sudo cp deploy/quant-paper.service /etc/systemd/system/quant-paper@$USER.service
@@ -144,7 +150,7 @@ sudo systemctl enable --now quant-paper@$USER
 | `After=network-online.target` | 네트워크 준비 전에 시작하지 않는다 |
 | `ProtectSystem=strict` | 지정한 디렉터리 외에는 쓰기 불가 |
 
-### 방식 B: 타이머 (상주 프로세스가 싫다면)
+#### 방식 B: 타이머 (상주 프로세스가 싫다면)
 
 ```bash
 sudo cp deploy/quant-paper-once.service /etc/systemd/system/quant-paper-once@$USER.service
@@ -155,7 +161,7 @@ sudo systemctl enable --now quant-paper.timer
 `Persistent=true` 라서 **서버가 꺼져 있던 동안 놓친 실행을 부팅 후 보충**한다.
 cron 에는 없는 기능이라 간헐적으로 켜는 서버에 유리하다.
 
-### 확인
+#### 확인
 
 ```bash
 systemctl status quant-paper@$USER
@@ -209,18 +215,111 @@ journalctl -u quant-paper@$USER --since today
 **같은 실험이 아니다.** 3개월 뒤 "왜 다르지?"를 고민하게 되므로, 결손이 크면
 차라리 다시 시작하는 편이 낫다.
 
-### 어디서 돌릴 것인가
+### 어디서 돌릴 것인가 — 유료가 필수는 아니다
 
-| 방식 | 월 비용 | 가동률 | 비고 |
-|---|---|---|---|
-| **VPS** (최소 사양) | 5,000~8,000원 | ~100% | 가장 확실. 신경 쓸 일 없음 |
-| **라즈베리파이** | 전기료 1,000원 미만 | 높음 | 3~5W. 집 인터넷·정전에 의존 |
-| **집 PC 상시 가동** | 전기료 5,000~15,000원 | 중간 | 소음·수명. 절전 해제 필수 |
-| **집 PC 하루 한 번** | 0원 | 낮음 | 켜는 걸 잊으면 결손 |
-| 노트북 덮개 닫기 | — | **매우 낮음** | 절전 들어가면 실행 안 됨 |
+**완전 무료로 가능하다.** 하드웨어조차 필요 없는 방법이 있다.
 
-**추천: 라즈베리파이 또는 최소 사양 VPS.** 3개월 총비용이 커피 두어 잔이고,
-"켜는 걸 잊었다"는 실패 모드가 사라진다.
+| 방식 | 월 비용 | 하드웨어 | 가동률 | 난이도 |
+|---|---|---|---|---|
+| **GitHub Actions** | **0원** | **불필요** | 높음 | 낮음 |
+| **구형 안드로이드폰 + Termux** | **0원** (전기료 무시 가능) | 서랍 속 폰 | 높음 | 중간 |
+| 집에 있는 아무 기기 | 전기료만 | 있으면 됨 | 기기에 따라 | 낮음 |
+| 라즈베리파이 | 1,000원 미만 | 5만원 내외 구매 | 높음 | 낮음 |
+| VPS 최소 사양 | 5,000~8,000원 | 불필요 | ~100% | 낮음 |
+
+---
+
+#### 방법 1. GitHub Actions — 하드웨어 없이 무료 (권장)
+
+저장소에 `.github/workflows/paper-trading.yml` 이 들어 있다. **그대로 쓰면 된다.**
+
+매일 09:30 KST 에 깨어나 한 사이클을 돌리고, 갱신된 `state/` 를 저장소에 되커밋한다.
+**그 커밋이 곧 영속 저장소**이므로 별도 DB나 디스크가 필요 없다.
+
+```
+Settings > Actions > General > Workflow permissions
+  → "Read and write permissions" 로 변경   ← 이것만 하면 끝
+```
+
+그 다음 Actions 탭에서 `paper-trading` → `Run workflow` 로 한 번 수동 실행해
+동작을 확인한다. 이후로는 매일 자동으로 돈다.
+
+**왜 되는가**
+- 업비트 **공개 시세 API** 만 쓰므로 시크릿·API 키가 필요 없다
+- 일봉 전략이라 하루 1분이면 충분 → 무료 분수 안에서 여유롭다
+  (Private 저장소 Free 플랜 월 2,000분 중 실제 사용 약 60분)
+- 비공개 저장소면 **나만 볼 수 있다**
+
+**알아둘 제약**
+
+| 제약 | 실제 영향 |
+|---|---|
+| cron 이 수십 분 지연될 수 있다 | 24시간 창이 있어 무관 |
+| 드물게 실행이 통째로 스킵된다 | 그날 봉 1개 결손 → 리포트에 기록됨 |
+| 60일간 저장소 활동이 없으면 스케줄 비활성화 | **매일 되커밋하므로 해당 없음** |
+| 매일 커밋이 쌓인다 | 3개월에 약 90개. 오히려 감사 추적이 된다 |
+| 저장소 용량 | 상태·저널 합쳐 3개월에 수 MB |
+
+> 무료 분수를 아끼려면 `cron` 을 `"30 0 * * *"` 그대로 두면 된다(하루 1회).
+> 더 자주 돌려도 멱등하므로 안전하지만 일봉 전략에는 의미가 없다.
+
+---
+
+#### 방법 2. 안 쓰는 스마트폰 (Termux) — 의외로 최적
+
+서랍에 있는 구형 안드로이드폰이 **훌륭한 24시간 서버**가 된다.
+
+| 장점 | 설명 |
+|---|---|
+| 전력 | 2~3W. 한 달 전기료 수백 원 |
+| **배터리 = 무정전 전원** | 정전이 나도 계속 돈다. VPS 도 못 하는 것 |
+| 소음·발열 | 없음 |
+| 비용 | 0원 (이미 가진 기기) |
+
+```bash
+# Play 스토어 말고 F-Droid 에서 Termux 설치 (스토어 버전은 업데이트가 끊겼다)
+pkg update && pkg upgrade
+pkg install python git
+pip install pandas numpy pyyaml requests    # 시간이 좀 걸린다
+
+git clone https://github.com/icedo724/auto_trading.git
+cd auto_trading
+python -m quant check-data --source upbit --symbol KRW-BTC
+```
+
+```bash
+# 매일 자동 실행 (termux-services 또는 크론)
+pkg install cronie termux-services
+sv-enable crond
+crontab -e
+# 30 9 * * *  cd ~/auto_trading && python -m quant paper -c configs/experiment_coin.yaml -s grid --name coin3m >> paper.log 2>&1
+```
+
+**주의할 점**
+- `pip install pandas` 가 폰에서 오래 걸리거나 실패할 수 있다.
+  실패하면 `pkg install python-pandas python-numpy` 를 먼저 시도할 것
+- 안드로이드가 백그라운드 앱을 죽인다. **Termux 를 배터리 최적화 예외**로 등록하고
+  `termux-wake-lock` 을 걸어둘 것
+- 화면은 꺼도 되지만 **충전기는 꽂아둘 것**
+
+---
+
+#### 방법 3. 이미 가진 기기
+
+새로 사지 않아도 된다. 공유기(OpenWrt), 미니PC, NAS(시놀로지 Docker),
+안 쓰는 노트북 — 파이썬이 도는 것이면 무엇이든 된다.
+
+**노트북이면 덮개를 닫아도 안 자게** 설정해야 한다(다음 절 참고).
+
+---
+
+#### 유료가 나은 경우
+
+무료로 충분하지만, 아래에 해당하면 VPS 5,000원이 시간을 아껴준다.
+
+- 집 인터넷이 자주 끊긴다
+- 기기를 만질 시간이 아깝다
+- 3개월 뒤 실전으로 넘어갈 계획이 확실하다 (어차피 필요해진다)
 
 ### 집 PC로 할 때 반드시 할 것
 

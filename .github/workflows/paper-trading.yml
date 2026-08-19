@@ -1,0 +1,95 @@
+# 페이퍼 트레이딩을 GitHub Actions 로 돌린다 — 하드웨어도 서버도 없이 무료.
+#
+# 동작: 매일 1회 깨어나 최신 봉을 확인하고 가상 체결한 뒤,
+#       갱신된 상태(state/)를 이 저장소에 되커밋한다. 그것이 곧 영속 저장소가 된다.
+#
+# 준비물: 없음. 업비트 공개 시세 API 만 쓰므로 시크릿도 필요 없다.
+# 주의:  Settings > Actions > General > Workflow permissions 를
+#        "Read and write permissions" 로 바꿔야 되커밋이 된다.
+
+name: paper-trading
+
+on:
+  schedule:
+    # 00:30 UTC = 09:30 KST. 업비트 일봉은 09:00 KST 에 마감되므로 그 직후.
+    # GitHub 의 cron 은 부하에 따라 수십 분 지연될 수 있으나, 일봉 전략은
+    # 다음 마감(24시간 뒤)까지 여유가 있어 문제되지 않는다.
+    - cron: "30 0 * * *"
+  workflow_dispatch:        # 수동 실행 버튼
+
+concurrency:
+  group: paper-trading      # 겹쳐 도는 것을 막는다 (멱등하지만 되커밋이 충돌한다)
+  cancel-in-progress: false
+
+permissions:
+  contents: write           # state/ 되커밋에 필요
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 의존성 설치
+        run: pip install -r requirements.txt
+
+      - name: 페이퍼 트레이딩 1회 실행
+        env:
+          CONFIG: configs/experiment_coin.yaml
+          BEST: reports/coin/optimization_best.json
+          NAME: coin3m
+        run: |
+          set -euo pipefail
+          # 최적 파라미터 파일이 없으면 설정에 적힌 전략을 직접 지정해 돌린다.
+          if [[ -f "$BEST" ]]; then
+            python -m quant paper -c "$CONFIG" --best-file "$BEST" \
+                   --state-dir state --name "$NAME"
+          else
+            echo "::notice::$BEST 없음 — grid 전략 기본값으로 실행합니다."
+            python -m quant paper -c "$CONFIG" -s grid \
+                   --state-dir state --name "$NAME"
+          fi
+
+      - name: 상태 되커밋 (이것이 영속 저장소다)
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f state/
+          if git diff --cached --quiet; then
+            echo "변경 없음 — 커밋 생략 (새 봉이 없었다는 뜻)"
+            exit 0
+          fi
+          git commit -m "paper: $(date -u +%Y-%m-%d) 사이클"
+          # 다른 커밋이 끼어들었을 수 있으므로 rebase 후 push
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && break || sleep 5
+          done
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: 계좌 현황 요약
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          p = pathlib.Path("state/coin3m.json")
+          if not p.exists():
+              print("아직 상태 파일이 없습니다."); raise SystemExit
+          d = json.loads(p.read_text(encoding="utf-8"))
+          invested = d["initial_cash"] + d["total_deposited"]
+          held = {k: v for k, v in d["positions"].items() if v}
+          print("## 페이퍼 계좌\n")
+          print(f"- 투입원금: {invested:,.0f}원")
+          print(f"- 현금: {d['cash']:,.0f}원")
+          print(f"- 누적수수료: {d['total_fees']:,.0f}원")
+          print(f"- 체결 건수: {len(d['fills'])}건")
+          print(f"- 보유: {', '.join(f'{k} {v:.8f}' for k, v in held.items()) or '없음'}")
+          print(f"- 갱신: {d['updated_at']}")
+          PY
