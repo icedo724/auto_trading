@@ -20,6 +20,7 @@ METRIC_ORDER = [
     "exposure", "turnover", "cost_drag", "best_day", "worst_day",
     # 적립식 전용 (contribution > 0 일 때만 채워진다)
     "total_invested", "final_balance", "net_profit", "mwr",
+    "n_halts",
 ]
 
 #: 값이 클수록 좋은 지표
@@ -205,6 +206,8 @@ def compute_metrics(result: "BacktestResult", config: BacktestConfig) -> dict[st
     }
     metrics.update(trade_stats(result.trades))
     metrics.update(contribution_metrics(result, config))
+    if config.risk.enabled:
+        metrics["n_halts"] = float(len(result.halt_events))
     return {k: metrics[k] for k in METRIC_ORDER if k in metrics}
 
 

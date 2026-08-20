@@ -61,6 +61,8 @@ class BacktestResult:
     balance: pd.Series | None = None
     #: 일별 입금액 (적립식). 대부분 0이고 입금일에만 값이 있다
     contributions: pd.Series | None = None
+    #: 계좌 손실 한도 발동 이력
+    halt_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def total_deposited(self) -> float:
@@ -139,6 +141,7 @@ class Backtester:
             total_cost=sim["total_cost"],
             balance=balance,
             contributions=contrib,
+            halt_events=sim["halt_events"],
         )
         result.metrics = compute_metrics(result, cfg)
         return result
@@ -181,6 +184,16 @@ class Backtester:
         contrib_bars = self._contribution_bars(dates, start_idx)
         contrib_arr = np.zeros(n)
 
+        # ---- 계좌 전체 손실 한도(서킷브레이커) 상태 ----
+        risk = cfg.risk
+        nav = 1.0  # 시간가중 지수 — 적립 입금이 드로다운을 가리지 않게 한다
+        peak_nav = 1.0
+        invested = float(cfg.initial_cash)
+        halt_until = -1  # 이 인덱스까지 매매 정지
+        halted_forever = False
+        halt_events: list[dict[str, Any]] = []
+        prev_equity = float(cfg.initial_cash)
+
         equity_arr = np.empty(n)
         pos_arr = np.zeros(n)
         trades: list[Trade] = []
@@ -214,7 +227,11 @@ class Backtester:
 
             # ---------------- 1) 목표 비중 확정 ----------------
             desired = float(target[i]) if i >= start_idx else 0.0
-            if blocked:
+
+            # 손실 한도에 걸렸으면 전량 청산하고 신규 진입을 막는다
+            if halted_forever or i <= halt_until:
+                desired = 0.0
+            elif blocked:
                 if desired == 0.0:
                     blocked = False
                 else:
@@ -317,6 +334,41 @@ class Backtester:
             equity_arr[i] = last_equity
             pos_arr[i] = 0.0 if last_equity <= 0 else shares * price_close / last_equity
 
+            # ---------------- 5) 계좌 손실 한도 점검 ----------------
+            if risk.enabled:
+                invested += contrib_arr[i]
+                denom = prev_equity + contrib_arr[i]
+                daily_ret = (last_equity / denom - 1.0) if denom > 0 else 0.0
+                nav *= 1.0 + daily_ret
+                peak_nav = max(peak_nav, nav)
+
+                if not halted_forever and i > halt_until:
+                    breach = None
+                    if risk.max_drawdown > 0 and nav / peak_nav - 1.0 <= -risk.max_drawdown:
+                        breach = ("max_drawdown", nav / peak_nav - 1.0)
+                    elif risk.max_loss > 0 and (
+                        last_equity / invested - 1.0 <= -risk.max_loss
+                    ):
+                        breach = ("max_loss", last_equity / invested - 1.0)
+                    elif risk.daily_loss > 0 and daily_ret <= -risk.daily_loss:
+                        breach = ("daily_loss", daily_ret)
+
+                    if breach is not None:
+                        halt_events.append({
+                            "date": dates[i].strftime("%Y-%m-%d"),
+                            "reason": breach[0],
+                            "value": float(breach[1]),
+                            "equity": float(last_equity),
+                            "action": risk.action,
+                        })
+                        if risk.action == "halt":
+                            halted_forever = True
+                        else:
+                            halt_until = i + risk.cooldown_days
+                            # 재개 시 즉시 재발동하지 않도록 고점을 현재로 리셋
+                            peak_nav = nav
+            prev_equity = last_equity
+
         # 미청산 포지션은 마지막 종가로 정리해 거래 통계에 포함
         if shares != 0.0:
             i = n - 1
@@ -335,6 +387,7 @@ class Backtester:
             "position": pd.Series(pos_arr, index=dates, name="position"),
             "trades": trades,
             "total_cost": total_cost,
+            "halt_events": halt_events,
         }
 
     def _contribution_bars(self, dates: pd.DatetimeIndex, start_idx: int) -> np.ndarray:

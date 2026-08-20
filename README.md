@@ -164,6 +164,16 @@ data:
   end:   "today"    # 오늘
 ```
 
+**계좌 전체 손실 한도**(서킷브레이커) — 종목별 손절만으로는 계좌를 못 지킨다.
+한도에 닿으면 전량 청산하고 정지한다. 대가는 `scripts/risk_limit_experiment.py` 로 확인.
+
+```yaml
+backtest:
+  risk:
+    max_loss: 0.25      # 원금 대비 -25% -> 영구 정지 (진짜 '바닥')
+    action: halt        # halt=영구정지 / cooldown=일정기간 후 재개
+```
+
 ### 실험 설정 (`configs/*.yaml`)
 
 ```yaml
@@ -210,6 +220,7 @@ validate:
 | 미세 리밸런싱 | `rebalance_threshold` 미만의 비중 변화는 거래 생략 |
 | 단주 | `allow_fractional: false`면 정수 주 단위 |
 | 상장 전 구간 | 공통 달력 정렬 시 NaN 유지 → 매매 대상에서 제외 |
+| **계좌 손실 한도** | 원금대비·고점대비·일일 손실 한도 도달 시 **전량 청산 후 정지** |
 
 ---
 

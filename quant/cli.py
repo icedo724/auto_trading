@@ -19,7 +19,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from .config import BacktestConfig, CostModel
+from .config import BacktestConfig, CostModel, RiskLimits
 from .data import get_source, load_universe
 from .dates import resolve_period
 from .engine import run_backtest
@@ -61,6 +61,9 @@ def load_experiment(path: str | Path) -> dict[str, Any]:
 
 def build_backtest_config(exp: dict[str, Any]) -> BacktestConfig:
     bt = dict(exp.get("backtest", {}))
+    risk = bt.pop("risk", None)
+    if isinstance(risk, dict):
+        bt["risk"] = RiskLimits(**risk)
     cost = bt.pop("cost", "kr")
     if isinstance(cost, str):
         bt["cost"] = CostModel.named(cost)

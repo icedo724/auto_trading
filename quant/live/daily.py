@@ -59,6 +59,25 @@ def health_checks(
     """(등급, 항목, 설명) 목록. 등급은 OK / 주의 / 경고."""
     checks: list[tuple[str, str, str]] = []
     days = live.get("days", 0)
+    pf = trader.portfolio
+    risk = trader.config.risk
+
+    # 0) 손실 한도 — 발동했으면 다른 무엇보다 먼저 봐야 한다
+    if risk.enabled:
+        if pf.halted:
+            checks.append(("경고", "손실 한도", "**발동 — 영구 정지 중.** 사람이 판단해야 재개"))
+        elif pf.halt_until:
+            checks.append(("경고", "손실 한도", f"발동 — {pf.halt_until} 까지 정지"))
+        else:
+            dd = pf.nav / pf.peak_nav - 1.0 if pf.peak_nav > 0 else 0.0
+            room = risk.max_drawdown + dd if risk.max_drawdown else None
+            note = f"현재 고점대비 {dd:.1%}"
+            if room is not None:
+                note += f" · 한도까지 {room:.1%} 남음"
+            grade = "주의" if (room is not None and room < 0.05) else "OK"
+            checks.append((grade, "손실 한도", note))
+    else:
+        checks.append(("주의", "손실 한도", "**설정 없음** — 계좌 전체 손실 바닥이 없다"))
 
     # 1) 가동률
     missed = live.get("missed_bars", 0)
@@ -172,6 +191,22 @@ def build_daily_report(trader, data, prices: dict[str, float], cycle=None) -> st
         f"_{now} 생성 · 가상 자금 · 실제 주문 없음_",
         "",
     ]
+
+    # 정지 상태면 최상단에 크게 알린다
+    if pf.halted or pf.halt_until:
+        last = pf.halt_events[-1] if pf.halt_events else {}
+        L += [
+            "> 🛑 **매매 정지 중**",
+            ">",
+            f"> 사유: `{last.get('reason', '?')}` "
+            f"{last.get('value', 0):.1%} ({last.get('date', '?')})",
+            ">",
+            "> " + (
+                "**영구 정지.** 설정을 재검토하고 직접 재개해야 한다."
+                if pf.halted else f"{pf.halt_until} 까지 자동 정지."
+            ),
+            "",
+        ]
 
     # ---------------------------------------------------------------- 1. 신호등
     if live:
@@ -297,6 +332,31 @@ def build_daily_report(trader, data, prices: dict[str, float], cycle=None) -> st
             rows.append({"지표": label, "라이브": f(lv), "백테스트": f(bv), "차이": f(lv - bv)})
         L += [_table(rows, ["지표", "라이브", "백테스트", "차이"]), ""]
 
+    # ------------------------------------------------------- 5.5 손실 한도
+    if cfg.risk.enabled:
+        dd = pf.nav / pf.peak_nav - 1.0 if pf.peak_nav > 0 else 0.0
+        L += [
+            "## 손실 한도 (서킷브레이커)",
+            "",
+            _table([
+                {"항목": "설정", "값": cfg.risk.describe()},
+                {"항목": "현재 고점 대비", "값": f"{dd:.2%}"},
+                {"항목": "상태", "값": (
+                    "🛑 영구 정지" if pf.halted else
+                    f"🛑 {pf.halt_until} 까지 정지" if pf.halt_until else "🟢 정상 가동"
+                )},
+                {"항목": "누적 발동", "값": f"{len(pf.halt_events)}회"},
+            ], ["항목", "값"]),
+            "",
+        ]
+        if pf.halt_events:
+            L += ["### 발동 이력", "", _table([
+                {"일자": e["date"], "사유": e["reason"],
+                 "값": f"{e['value']:.2%}", "평가금액": f"{e['equity']:,.0f}",
+                 "조치": e["action"]}
+                for e in pf.halt_events[-10:]
+            ]), ""]
+
     # ------------------------------------------------------------ 6. 보유·체결
     L += ["## 보유 현황", "", "```", format_status(pf, prices), "```", ""]
 
@@ -329,6 +389,7 @@ def build_daily_report(trader, data, prices: dict[str, float], cycle=None) -> st
                                 f"거래세 {cfg.cost.sell_tax_bps}bp · "
                                 f"슬리피지 {cfg.cost.slippage_bps}bp"},
             {"항목": "리밸런싱 임계치", "값": f"{cfg.rebalance_threshold:.0%}"},
+            {"항목": "손실 한도", "값": cfg.risk.describe()},
             {"항목": "최소 주문", "값": f"{cfg.min_order_value:,.0f}원"},
             {"항목": "시작일", "값": pf.created_at[:10]},
         ], ["항목", "값"]),

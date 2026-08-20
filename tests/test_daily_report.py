@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -136,11 +134,14 @@ def test_live_period_none_when_too_few_cycles(tmp_path):
 
 
 # --------------------------------------------------------------- 신호등 판정
-def _trader_stub(tmp_path, fills=()):
+def _trader_stub(tmp_path, fills=(), risk=None):
+    from quant.config import RiskLimits
+
     class Stub:
         def __init__(self):
             self.portfolio = PaperPortfolio(cash=0.0, initial_cash=100_000)
             self.portfolio.fills = list(fills)
+            self.config = cfg(risk=risk or RiskLimits())
     return Stub()
 
 
@@ -188,3 +189,64 @@ def test_overall_verdict_escalates(tmp_path):
     assert "정상" in overall_verdict([("OK", "a", ""), ("OK", "b", "")])
     assert "주의" in overall_verdict([("주의", "a", ""), ("주의", "b", "")])
     assert "확인 필요" in overall_verdict([("OK", "a", ""), ("경고", "b", "")])
+
+
+# ------------------------------------------------------------ 손실 한도 신호등
+def test_health_warns_when_no_loss_limit_configured(tmp_path):
+    """계좌 전체 손실 바닥이 없으면 알려줘야 한다."""
+    t = _trader_stub(tmp_path)
+    grade = dict((k, (g, v)) for g, k, v in
+                 health_checks(t, {"days": 60, "missed_bars": 0, "fee_drag": 0.001}, {}))
+    assert grade["손실 한도"][0] == "주의"
+    assert "설정 없음" in grade["손실 한도"][1]
+
+
+def test_health_reports_remaining_room(tmp_path):
+    from quant.config import RiskLimits
+
+    t = _trader_stub(tmp_path, risk=RiskLimits(max_drawdown=0.20))
+    t.portfolio.nav, t.portfolio.peak_nav = 0.95, 1.0        # 고점 대비 -5%
+    grade = dict((k, (g, v)) for g, k, v in
+                 health_checks(t, {"days": 60, "missed_bars": 0, "fee_drag": 0.001}, {}))
+    assert grade["손실 한도"][0] == "OK"
+    assert "남음" in grade["손실 한도"][1]
+
+    t.portfolio.nav = 0.83                                   # 한도까지 3%p
+    grade = dict((k, g) for g, k, _ in
+                 health_checks(t, {"days": 60, "missed_bars": 0, "fee_drag": 0.001}, {}))
+    assert grade["손실 한도"] == "주의"
+
+
+def test_health_flags_active_halt(tmp_path):
+    from quant.config import RiskLimits
+
+    t = _trader_stub(tmp_path, risk=RiskLimits(max_loss=0.20))
+    t.portfolio.halted = True
+    grade = dict((k, (g, v)) for g, k, v in
+                 health_checks(t, {"days": 60, "missed_bars": 0, "fee_drag": 0.001}, {}))
+    assert grade["손실 한도"][0] == "경고"
+    assert "영구 정지" in grade["손실 한도"][1]
+
+
+def test_report_shows_halt_banner_and_section(env):
+    """정지 상태는 리포트 최상단에서 바로 보여야 한다."""
+    from quant.config import RiskLimits
+
+    exp, tmp = env
+    c = cfg(risk=RiskLimits(max_loss=0.20))
+    t = PaperTrader(exp, create_strategy("buy_and_hold"), c,
+                    state_dir=tmp / "state", name="t", report_dir=tmp / "reports")
+    t.run_once()
+    t.portfolio.halted = True
+    t.portfolio.halt_events.append(
+        {"date": "2026-03-05", "reason": "max_loss", "value": -0.21,
+         "equity": 79_000.0, "action": "halt"}
+    )
+    text = t.write_report(
+        {}, {s: 1.0 for s in exp["data"]["symbols"]}
+    ).read_text(encoding="utf-8")
+
+    assert "🛑 **매매 정지 중**" in text
+    assert "max_loss" in text
+    assert "## 손실 한도 (서킷브레이커)" in text
+    assert "영구 정지" in text

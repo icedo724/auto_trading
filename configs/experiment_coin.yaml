@@ -42,6 +42,19 @@ backtest:
   stop_loss_pct: 0.0       # 그리드/적립식과 손절은 궁합이 나쁘다 (하단에서 털림)
   trailing_stop_pct: 0.0
 
+  # 계좌 전체 손실 한도 — 종목별 손절만으로는 계좌를 못 지킨다.
+  # 10종목이 각각 9%씩 빠지면(손절선 10% 미달) 계좌는 -9%인데 아무것도 발동 안 한다.
+  #
+  # ⚠️ 공짜가 아니다. 회복했을 손실을 확정 손실로 바꾼다.
+  #    scripts/risk_limit_experiment.py 로 대가를 직접 확인할 것.
+  #    한도는 반드시 **백테스트 MDD 보다 넉넉하게** 잡는다.
+  risk:
+    max_loss: 0.25         # 원금 대비 -25% -> 영구 정지. 이것이 진짜 '바닥'
+    max_drawdown: 0.0      # 고점 대비 (쿨다운과 함께 쓰면 누적은 보장 안 됨)
+    daily_loss: 0.0        # 하루 손실 (플래시 크래시 대응)
+    action: halt           # halt=영구정지 / cooldown=일정기간 후 재개
+    cooldown_days: 20
+
   trading_days: 365        # 코인은 연중무휴
   risk_free_rate: 0.03
 

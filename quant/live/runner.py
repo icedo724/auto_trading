@@ -180,6 +180,10 @@ class PaperTrader:
         # 이 스케일이 없으면 먼저 처리된 종목이 자본을 전부 가져간다.
         allocation = 1.0 / max(len(data), 1)
 
+        # 손실 한도에 걸려 있으면 전량 청산하고 신규 진입을 막는다
+        today = str(pd.Timestamp(now).tz_localize(None).date())
+        halted, halt_reason = self.portfolio.is_trading_halted(today)
+
         for sym, (df, bar) in pending.items():
             try:
                 sig = self.strategy.generate_signals(df)
@@ -188,12 +192,14 @@ class PaperTrader:
                     continue
                 # 백테스트와 동일: 마지막 '마감된' 봉의 신호를 지금(= 다음 봉 시가) 체결
                 raw_target = max(0.0, min(float(sig.iloc[-1]), self.config.max_weight))
-                target = raw_target * allocation
+                target = 0.0 if halted else raw_target * allocation
 
                 decision = self.portfolio.execute(
                     sym, target, prices[sym], self.config, now, prices,
                     signal=raw_target,
                 )
+                if halted:
+                    decision.reason = "risk_halt"
                 decisions.append(decision)
                 self.portfolio.last_bar[sym] = bar
                 processed.append(sym)
@@ -207,6 +213,19 @@ class PaperTrader:
                 self.journal.write("symbol_error", symbol=sym, error=str(exc)[:300])
 
         equity = self.portfolio.equity(prices)
+
+        # 손실 한도 점검 — 다음 사이클부터 매매가 멈춘다
+        breach = self.portfolio.check_risk_limits(
+            self.config, equity, deposited, today if pending else
+            str(pd.Timestamp(now).tz_localize(None).date())
+        )
+        if breach:
+            self.journal.write("risk_halt", **breach)
+            print(
+                f"  🔴 손실 한도 도달: {breach['reason']} {breach['value']:.1%}"
+                f" — {'영구 정지' if breach['action'] == 'halt' else '일시 정지'}"
+            )
+
         self.portfolio.updated_at = now
         self.portfolio.save(self.state_path)
 

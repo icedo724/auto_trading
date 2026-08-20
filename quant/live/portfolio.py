@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from ..config import BPS, BacktestConfig
 
 STATE_VERSION = 1
@@ -46,6 +48,7 @@ REASON_TEXT = {
     "no_change": "목표비중과 현재비중이 같음",
     "invalid_price": "유효하지 않은 가격",
     "bankrupt": "평가자산이 0 이하",
+    "risk_halt": "계좌 손실 한도 도달 — 매매 정지 중",
 }
 
 
@@ -95,6 +98,67 @@ class PaperPortfolio:
     last_bar: dict[str, str] = field(default_factory=dict)
     #: 마지막 적립 입금 기간 ("2026-01"). 같은 달에 두 번 넣지 않기 위함
     last_contribution: str = ""
+
+    # ---- 계좌 손실 한도(서킷브레이커) 상태 ----
+    nav: float = 1.0  # 시간가중 지수 (입금이 드로다운을 가리지 않게)
+    peak_nav: float = 1.0
+    last_equity: float = 0.0
+    halted: bool = False  # 영구 정지
+    halt_until: str = ""  # cooldown 재개 예정일 (YYYY-MM-DD)
+    halt_events: list[dict] = field(default_factory=list)
+
+    def is_trading_halted(self, today: str) -> tuple[bool, str]:
+        """(정지중인가, 사유). 쿨다운이 끝났으면 자동 해제한다."""
+        if self.halted:
+            return True, "손실 한도 도달 — 영구 정지 (사람이 판단해야 재개)"
+        if self.halt_until and today < self.halt_until:
+            return True, f"손실 한도 도달 — {self.halt_until} 까지 정지"
+        if self.halt_until and today >= self.halt_until:
+            self.halt_until = ""
+            self.peak_nav = self.nav  # 재개 즉시 재발동하지 않도록 고점 리셋
+        return False, ""
+
+    def check_risk_limits(
+        self, config: BacktestConfig, equity: float, deposited: float, today: str
+    ) -> dict | None:
+        """손실 한도 점검. 위반이면 이벤트를 기록하고 반환한다."""
+        risk = config.risk
+        if not risk.enabled:
+            return None
+
+        prev = self.last_equity or config.initial_cash
+        denom = prev + deposited
+        daily = (equity / denom - 1.0) if denom > 0 else 0.0
+        self.nav *= 1.0 + daily
+        self.peak_nav = max(self.peak_nav, self.nav)
+        self.last_equity = equity
+
+        if self.halted or (self.halt_until and today < self.halt_until):
+            return None
+
+        invested = self.total_invested or config.initial_cash
+        breach = None
+        if risk.max_drawdown > 0 and self.nav / self.peak_nav - 1.0 <= -risk.max_drawdown:
+            breach = ("max_drawdown", self.nav / self.peak_nav - 1.0)
+        elif risk.max_loss > 0 and equity / invested - 1.0 <= -risk.max_loss:
+            breach = ("max_loss", equity / invested - 1.0)
+        elif risk.daily_loss > 0 and daily <= -risk.daily_loss:
+            breach = ("daily_loss", daily)
+        if breach is None:
+            return None
+
+        event = {
+            "date": today, "reason": breach[0], "value": float(breach[1]),
+            "equity": float(equity), "action": risk.action,
+        }
+        self.halt_events.append(event)
+        if risk.action == "halt":
+            self.halted = True
+        else:
+            self.halt_until = str(
+                (pd.Timestamp(today) + pd.Timedelta(days=risk.cooldown_days)).date()
+            )
+        return event
     created_at: str = ""
     updated_at: str = ""
 
