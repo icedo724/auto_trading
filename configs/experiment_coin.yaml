@@ -37,7 +37,10 @@ backtest:
   allow_short: false
   allow_fractional: true   # 코인은 소수점 매매 가능 — 소액의 핵심
   max_weight: 1.0
-  rebalance_threshold: 0.10   # 소액에서는 임계치를 크게 잡아 잔거래를 막는다
+  # 임계치는 반드시 **종목당 배분(1/종목수)보다 작아야** 한다.
+  # 5종목이면 종목당 20%. grid 의 0.25 신호는 목표 5% 인데,
+  # 임계치가 10%면 그 신호는 영원히 체결되지 않는다(전략의 절반이 죽는다).
+  rebalance_threshold: 0.03
 
   stop_loss_pct: 0.0       # 그리드/적립식과 손절은 궁합이 나쁘다 (하단에서 털림)
   trailing_stop_pct: 0.0

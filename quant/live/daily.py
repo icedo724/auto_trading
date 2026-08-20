@@ -135,7 +135,27 @@ def health_checks(
     else:
         checks.append(("OK", "수수료", f"원금의 {drag:.2%}"))
 
-    # 6) 장기 무거래 — 전략이 죽었거나 설정이 잘못됐을 수 있다
+    # 6) 임계치가 배분 단위보다 큰가 — 전략의 일부가 구조적으로 죽는 설정
+    n_sym = len(trader.exp.get("data", {}).get("symbols", []) or [])
+    if n_sym:
+        alloc = 1.0 / n_sym
+        thr = trader.config.rebalance_threshold
+        if thr >= alloc:
+            checks.append((
+                "경고", "임계치 설정",
+                f"리밸런싱 임계치 {thr:.0%} ≥ 종목당 배분 {alloc:.0%}"
+                " — 신호가 최대여도 거래되지 않는다",
+            ))
+        elif thr > alloc / 2:
+            checks.append((
+                "주의", "임계치 설정",
+                f"임계치 {thr:.0%} 가 종목당 배분 {alloc:.0%} 의 절반을 넘는다"
+                " — 약한 신호는 영원히 체결되지 않는다",
+            ))
+        else:
+            checks.append(("OK", "임계치 설정", f"임계치 {thr:.0%} < 배분 {alloc:.0%}"))
+
+    # 7) 장기 무거래 — 전략이 죽었거나 설정이 잘못됐을 수 있다
     fills = trader.portfolio.fills
     if days >= 30 and not fills:
         checks.append(("경고", "거래", "30일 넘게 체결이 하나도 없다 — 설정 확인"))

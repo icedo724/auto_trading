@@ -142,6 +142,7 @@ def _trader_stub(tmp_path, fills=(), risk=None):
             self.portfolio = PaperPortfolio(cash=0.0, initial_cash=100_000)
             self.portfolio.fills = list(fills)
             self.config = cfg(risk=risk or RiskLimits())
+            self.exp = {"data": {"symbols": ["A", "B", "C"]}}
     return Stub()
 
 
@@ -250,3 +251,23 @@ def test_report_shows_halt_banner_and_section(env):
     assert "max_loss" in text
     assert "## 손실 한도 (서킷브레이커)" in text
     assert "영구 정지" in text
+
+
+# ------------------------------------------------- 임계치 vs 배분 단위 점검
+def test_health_flags_threshold_larger_than_allocation(tmp_path):
+    """임계치가 종목당 배분보다 크면 신호가 최대여도 거래가 안 된다."""
+    from quant.config import RiskLimits
+
+    t = _trader_stub(tmp_path)
+    t.exp = {"data": {"symbols": ["A", "B", "C", "D", "E"]}}   # 종목당 20%
+    live = {"days": 60, "missed_bars": 0, "fee_drag": 0.001}
+
+    t.config = cfg(rebalance_threshold=0.25, risk=RiskLimits())   # 25% >= 20%
+    grade = dict((k, (g, v)) for g, k, v in health_checks(t, live, {}))
+    assert grade["임계치 설정"][0] == "경고"
+
+    t.config = cfg(rebalance_threshold=0.15, risk=RiskLimits())   # 배분의 절반 초과
+    assert dict((k, g) for g, k, _ in health_checks(t, live, {}))["임계치 설정"] == "주의"
+
+    t.config = cfg(rebalance_threshold=0.03, risk=RiskLimits())   # 정상
+    assert dict((k, g) for g, k, _ in health_checks(t, live, {}))["임계치 설정"] == "OK"
