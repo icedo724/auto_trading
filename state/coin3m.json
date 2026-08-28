@@ -1,12 +1,14 @@
 {
-  "cash": 101179.27113622669,
+  "cash": 96115.24735111765,
   "positions": {
-    "KRW-ADA": 0.0
+    "KRW-ADA": 17.3847544907606
   },
-  "avg_price": {},
+  "avg_price": {
+    "KRW-ADA": 291.29107274999996
+  },
   "total_deposited": 0.0,
   "initial_cash": 100000,
-  "total_fees": 15.660138572968874,
+  "total_fees": 18.190885092263745,
   "fills": [
     {
       "timestamp": "2026-08-20T01:57:29+00:00",
@@ -47,23 +49,33 @@
       "fee": 2.5695676090603214,
       "notional": 5139.135218120643,
       "reason": "signal"
+    },
+    {
+      "timestamp": "2026-08-28T11:35:05+00:00",
+      "symbol": "KRW-ADA",
+      "side": "BUY",
+      "quantity": 17.3847544907606,
+      "price": 291.14549999999997,
+      "fee": 2.53074651929487,
+      "notional": 5061.49303858974,
+      "reason": "signal"
     }
   ],
   "last_bar": {
-    "KRW-BTC": "2026-08-27",
-    "KRW-ETH": "2026-08-27",
-    "KRW-XRP": "2026-08-27",
-    "KRW-SOL": "2026-08-27",
-    "KRW-ADA": "2026-08-27"
+    "KRW-BTC": "2026-08-28",
+    "KRW-ETH": "2026-08-28",
+    "KRW-XRP": "2026-08-28",
+    "KRW-SOL": "2026-08-28",
+    "KRW-ADA": "2026-08-28"
   },
   "last_contribution": "2026-08",
-  "nav": 1.011792711362267,
+  "nav": 1.01174210907929,
   "peak_nav": 1.011792711362267,
-  "last_equity": 101179.27113622669,
+  "last_equity": 101174.21090792898,
   "halted": false,
   "halt_until": "",
   "halt_events": [],
   "created_at": "2026-08-20T01:57:29+00:00",
-  "updated_at": "2026-08-27T10:03:40+00:00",
+  "updated_at": "2026-08-28T11:35:05+00:00",
   "version": 1
 }
