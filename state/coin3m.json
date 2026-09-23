@@ -1,20 +1,16 @@
 {
-  "cash": 180568.84032506304,
+  "cash": 214768.18863636843,
   "positions": {
     "KRW-ADA": 0.0,
-    "KRW-BTC": 9.514997125813871e-05,
-    "KRW-ETH": 0.002948384819696455,
-    "KRW-XRP": 5.490607802022217,
+    "KRW-BTC": 0.0,
+    "KRW-ETH": 0.0,
+    "KRW-XRP": 0.0,
     "KRW-SOL": 0.0
   },
-  "avg_price": {
-    "KRW-BTC": 106359393.73442231,
-    "KRW-ETH": 3320166.296620632,
-    "KRW-XRP": 1869.794383148673
-  },
+  "avg_price": {},
   "total_deposited": 100000.0,
   "initial_cash": 100000,
-  "total_fees": 273.2635495293808,
+  "total_fees": 290.3717777991684,
   "fills": [
     {
       "timestamp": "2026-08-20T01:57:29+00:00",
@@ -515,23 +511,53 @@
       "fee": 5.532569263063123,
       "notional": 11065.138526126246,
       "reason": "signal"
+    },
+    {
+      "timestamp": "2026-09-23T04:56:47+00:00",
+      "symbol": "KRW-BTC",
+      "side": "SELL",
+      "quantity": 9.514997125813871e-05,
+      "price": 116814563.5,
+      "fee": 5.55745117977851,
+      "notional": 11114.90235955702,
+      "reason": "signal"
+    },
+    {
+      "timestamp": "2026-09-23T04:56:47+00:00",
+      "symbol": "KRW-ETH",
+      "side": "SELL",
+      "quantity": 0.002948384819696455,
+      "price": 3731133.5,
+      "fee": 5.500408685830452,
+      "notional": 11000.817371660904,
+      "reason": "signal"
+    },
+    {
+      "timestamp": "2026-09-23T04:56:47+00:00",
+      "symbol": "KRW-XRP",
+      "side": "SELL",
+      "quantity": 5.490607802022217,
+      "price": 2203.8975,
+      "fee": 6.05036840417863,
+      "notional": 12100.73680835726,
+      "reason": "signal"
     }
   ],
   "last_bar": {
-    "KRW-BTC": "2026-09-22",
-    "KRW-ETH": "2026-09-22",
-    "KRW-XRP": "2026-09-22",
-    "KRW-SOL": "2026-09-22",
-    "KRW-ADA": "2026-09-22"
+    "KRW-BTC": "2026-09-23",
+    "KRW-ETH": "2026-09-23",
+    "KRW-XRP": "2026-09-23",
+    "KRW-SOL": "2026-09-23",
+    "KRW-ADA": "2026-09-23"
   },
   "last_contribution": "2026-09",
-  "nav": 1.0707838250754322,
-  "peak_nav": 1.0707838250754322,
-  "last_equity": 213467.98426333233,
+  "nav": 1.0773058232886252,
+  "peak_nav": 1.0773058232886252,
+  "last_equity": 214768.18863636843,
   "halted": false,
   "halt_until": "",
   "halt_events": [],
   "created_at": "2026-08-20T01:57:29+00:00",
-  "updated_at": "2026-09-22T05:12:15+00:00",
+  "updated_at": "2026-09-23T04:56:47+00:00",
   "version": 1
 }
