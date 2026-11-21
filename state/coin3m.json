@@ -1310,20 +1310,28 @@
     }
   ],
   "last_bar": {
-    "KRW-BTC": "2026-11-20",
-    "KRW-ETH": "2026-11-20",
-    "KRW-XRP": "2026-11-20",
-    "KRW-SOL": "2026-11-20",
-    "KRW-ADA": "2026-11-20"
+    "KRW-BTC": "2026-11-21",
+    "KRW-ETH": "2026-11-21",
+    "KRW-XRP": "2026-11-21",
+    "KRW-SOL": "2026-11-21",
+    "KRW-ADA": "2026-11-21"
   },
   "last_contribution": "2026-11",
-  "nav": 0.7701198720104943,
+  "nav": 0.7317451437292928,
   "peak_nav": 1.0860076194029888,
-  "last_equity": 306255.5973349089,
-  "halted": false,
+  "last_equity": 290995.0180933385,
+  "halted": true,
   "halt_until": "",
-  "halt_events": [],
+  "halt_events": [
+    {
+      "date": "2026-11-21",
+      "reason": "max_loss",
+      "value": -0.27251245476665364,
+      "equity": 290995.0180933385,
+      "action": "halt"
+    }
+  ],
   "created_at": "2026-08-20T01:57:29+00:00",
-  "updated_at": "2026-11-20T07:33:43+00:00",
+  "updated_at": "2026-11-21T07:30:04+00:00",
   "version": 1
 }
